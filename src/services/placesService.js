@@ -106,6 +106,39 @@ export function textSearch({ location, radius = 8000, query } = {}) {
     })
 }
 
+export function getPlaceDetails(placeId, fields = null) {
+    ensurePlaces()
+    const service = getService()
+    if (!placeId) return Promise.resolve(null)
+
+    const request = {
+        placeId,
+        fields: fields || ['place_id', 'name', 'formatted_address', 'rating', 'user_ratings_total', 'photos', 'url', 'website', 'opening_hours'],
+    }
+
+    return new Promise((resolve, reject) => {
+        service.getDetails(request, (place, status) => {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+                resolve({
+                    placeId: place.place_id,
+                    name: place.name,
+                    address: place.formatted_address || '',
+                    rating: place.rating ?? null,
+                    userRatingsTotal: place.user_ratings_total ?? null,
+                    isOpenNow: place.opening_hours?.isOpen?.() ?? place.opening_hours?.open_now ?? null,
+                    photoUrl: placePhotoUrl(place, { maxWidth: 900, maxHeight: 900 }),
+                    url: place.url || null,
+                    website: place.website || null,
+                })
+            } else if (status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+                resolve(null)
+            } else {
+                reject(new Error(`Places getDetails failed: ${status}`))
+            }
+        })
+    })
+}
+
 export async function getNearbySuggestions(category, location) {
     const loc = normalizeLocation(location)
     if (!loc) return []

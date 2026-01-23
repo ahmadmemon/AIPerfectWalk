@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api'
+import { GoogleMap, Marker, DirectionsRenderer, OverlayView } from '@react-google-maps/api'
 import { useTheme } from '../context/ThemeContext'
 import { getStopColor, createPoint, getWaypoints } from '../utils/routeHelpers'
+import { ExternalLink, Flag, MapPin, Navigation, Plus, Trash2, Star } from 'lucide-react'
+import { getPlaceDetails } from '../services/placesService'
 
 const DEFAULT_CENTER = { lat: 37.7749, lng: -122.4194 } // San Francisco
 
@@ -30,9 +32,13 @@ export default function Map({
     onSetStart,
     onSetEnd,
     onAddStop,
+    onRemoveStop,
     onUpdateRouteInfo,
     selectedArea,
     onUserLocationChange,
+    discoverPlaces = [],
+    focusPoint,
+    onFocusPointConsumed,
 }) {
     const { isDark } = useTheme()
     const mapRef = useRef(null)
@@ -40,6 +46,9 @@ export default function Map({
     const directionsServiceRef = useRef(null)
     const [directions, setDirections] = useState(null)
     const [userLocation, setUserLocation] = useState(null)
+    const [activeInfo, setActiveInfo] = useState(null)
+    const prevStopsCountRef = useRef(0)
+    const placeDetailsCacheRef = useRef(new Map())
     const [mapCenter, setMapCenter] = useState(() => {
         if (selectedArea) {
             return { lat: selectedArea.lat, lng: selectedArea.lng }
@@ -50,25 +59,34 @@ export default function Map({
 
     // Get user's location on mount
     useEffect(() => {
-        if (navigator.geolocation) {
+        if (!navigator.geolocation?.getCurrentPosition) return
+
+        let canceled = false
+        try {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
-                    const loc = {
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude,
-                    }
+                    if (canceled) return
+                    const lat = position?.coords?.latitude
+                    const lng = position?.coords?.longitude
+                    if (typeof lat !== 'number' || typeof lng !== 'number') return
+                    const loc = { lat, lng }
                     setUserLocation(loc)
                     if (!selectedArea) {
                         setMapCenter(loc)
                     }
-                    if (onUserLocationChange) {
-                        onUserLocationChange(loc)
-                    }
+                    onUserLocationChange?.(loc)
                 },
-                () => {
-                    console.log('Geolocation permission denied, using default location')
-                }
+                (err) => {
+                    console.log('Geolocation unavailable:', err?.message || err)
+                },
+                { maximumAge: 5 * 60 * 1000, timeout: 8000 }
             )
+        } catch (err) {
+            console.log('Geolocation call failed:', err)
+        }
+
+        return () => {
+            canceled = true
         }
     }, [onUserLocationChange, selectedArea])
 
@@ -91,16 +109,47 @@ export default function Map({
         if (route.startPoint && mapRef.current) {
             mapRef.current.panTo({ lat: route.startPoint.lat, lng: route.startPoint.lng })
             mapRef.current.setZoom(16) // Zoom in closer when start point is selected
+            setActiveInfo({
+                kind: 'start',
+                id: 'start',
+                data: route.startPoint,
+                position: { lat: route.startPoint.lat, lng: route.startPoint.lng },
+            })
         }
     }, [route.startPoint])
 
     // Pan to end point when set (less aggressive zoom)
     useEffect(() => {
-        if (route.endPoint && mapRef.current && !route.startPoint) {
+        if (!route.endPoint) return
+        if (mapRef.current && !route.startPoint) {
             mapRef.current.panTo({ lat: route.endPoint.lat, lng: route.endPoint.lng })
             mapRef.current.setZoom(15)
         }
+        setActiveInfo({
+            kind: 'end',
+            id: 'end',
+            data: route.endPoint,
+            position: { lat: route.endPoint.lat, lng: route.endPoint.lng },
+        })
     }, [route.endPoint, route.startPoint])
+
+    useEffect(() => {
+        const prevCount = prevStopsCountRef.current
+        const nextCount = route.stops.length
+        if (nextCount > prevCount) {
+            const index = nextCount - 1
+            const stop = route.stops[index]
+            if (stop) {
+                setActiveInfo({
+                    kind: 'stop',
+                    id: stop.id,
+                    data: { ...stop, index },
+                    position: { lat: stop.lat, lng: stop.lng },
+                })
+            }
+        }
+        prevStopsCountRef.current = nextCount
+    }, [route.stops])
 
     // Calculate and display route when points change
     useEffect(() => {
@@ -159,9 +208,13 @@ export default function Map({
 
         geocoderRef.current.geocode({ location: latLng }, (results, status) => {
             if (status === 'OK' && results[0]) {
-                callback(results[0].formatted_address)
+                callback({
+                    address: results[0].formatted_address,
+                    placeId: results[0].place_id,
+                    name: results[0].address_components?.[0]?.long_name || results[0].formatted_address,
+                })
             } else {
-                callback('')
+                callback({ address: '', placeId: null, name: '' })
             }
         })
     }, [])
@@ -173,8 +226,8 @@ export default function Map({
         const point = createPoint(latLng)
 
         // Reverse geocode to get address
-        reverseGeocode(latLng, (address) => {
-            const pointWithAddress = { ...point, address }
+        reverseGeocode(latLng, (info) => {
+            const pointWithAddress = { ...point, address: info.address, placeId: info.placeId, name: info.name }
 
             switch (editMode) {
                 case 'start':
@@ -194,6 +247,55 @@ export default function Map({
         mapRef.current = map
     }, [])
 
+    useEffect(() => {
+        if (!focusPoint || !mapRef.current) return
+        if (typeof focusPoint.lat !== 'number' || typeof focusPoint.lng !== 'number') return
+        mapRef.current.panTo({ lat: focusPoint.lat, lng: focusPoint.lng })
+        mapRef.current.setZoom(16)
+        setActiveInfo({
+            kind: focusPoint.kind || 'focus',
+            id: focusPoint.placeId || focusPoint.id || null,
+            data: focusPoint,
+            position: { lat: focusPoint.lat, lng: focusPoint.lng },
+        })
+        onFocusPointConsumed?.()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusPoint])
+
+    useEffect(() => {
+        let canceled = false
+        const placeId = activeInfo?.data?.placeId
+        if (!placeId) return
+
+        const cached = placeDetailsCacheRef.current.get(placeId)
+        if (cached) {
+            setActiveInfo((prev) => {
+                if (!prev) return prev
+                if (prev?.data?.placeId !== placeId) return prev
+                return { ...prev, data: { ...prev.data, ...cached } }
+            })
+            return
+        }
+
+        getPlaceDetails(placeId)
+            .then((details) => {
+                if (canceled || !details) return
+                placeDetailsCacheRef.current.set(placeId, details)
+                setActiveInfo((prev) => {
+                    if (!prev) return prev
+                    if (prev?.data?.placeId !== placeId) return prev
+                    return { ...prev, data: { ...prev.data, ...details } }
+                })
+            })
+            .catch(() => {
+                // ignore
+            })
+
+        return () => {
+            canceled = true
+        }
+    }, [activeInfo?.data?.placeId])
+
     const mapOptions = {
         disableDefaultUI: false,
         zoomControl: true,
@@ -204,13 +306,27 @@ export default function Map({
         clickableIcons: false,
     }
 
+    const openGoogleMapsLink = (placeId, name, lat, lng) => {
+        if (placeId) return `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(placeId)}&query=${encodeURIComponent(name || '')}`
+        if (typeof lat === 'number' && typeof lng === 'number') return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+        return `https://www.google.com/maps`
+    }
+
+    const getOffset = (width, height) => ({
+        x: -Math.round(width / 2),
+        y: -Math.round(height + 18),
+    })
+
     return (
         <div className="relative w-full h-full">
             <GoogleMap
                 mapContainerStyle={mapContainerStyle}
                 center={mapCenter}
                 zoom={mapZoom}
-                onClick={handleMapClick}
+                onClick={(e) => {
+                    if (!editMode) setActiveInfo(null)
+                    handleMapClick(e)
+                }}
                 onLoad={onMapLoad}
                 options={mapOptions}
             >
@@ -218,9 +334,17 @@ export default function Map({
                 {route.startPoint && (
                     <Marker
                         position={{ lat: route.startPoint.lat, lng: route.startPoint.lng }}
+                        onClick={() => {
+                            setActiveInfo({
+                                kind: 'start',
+                                id: 'start',
+                                data: route.startPoint,
+                                position: { lat: route.startPoint.lat, lng: route.startPoint.lng },
+                            })
+                        }}
                         icon={{
                             path: google.maps.SymbolPath.CIRCLE,
-                            scale: 14,
+                            scale: activeInfo?.kind === 'start' ? 16 : 14,
                             fillColor: '#10B981',
                             fillOpacity: 1,
                             strokeColor: '#ffffff',
@@ -234,9 +358,17 @@ export default function Map({
                 {route.endPoint && (
                     <Marker
                         position={{ lat: route.endPoint.lat, lng: route.endPoint.lng }}
+                        onClick={() => {
+                            setActiveInfo({
+                                kind: 'end',
+                                id: 'end',
+                                data: route.endPoint,
+                                position: { lat: route.endPoint.lat, lng: route.endPoint.lng },
+                            })
+                        }}
                         icon={{
                             path: google.maps.SymbolPath.CIRCLE,
-                            scale: 14,
+                            scale: activeInfo?.kind === 'end' ? 16 : 14,
                             fillColor: '#EF4444',
                             fillOpacity: 1,
                             strokeColor: '#ffffff',
@@ -251,9 +383,17 @@ export default function Map({
                     <Marker
                         key={stop.id}
                         position={{ lat: stop.lat, lng: stop.lng }}
+                        onClick={() => {
+                            setActiveInfo({
+                                kind: 'stop',
+                                id: stop.id,
+                                data: { ...stop, index },
+                                position: { lat: stop.lat, lng: stop.lng },
+                            })
+                        }}
                         icon={{
                             path: google.maps.SymbolPath.CIRCLE,
-                            scale: 11,
+                            scale: activeInfo?.kind === 'stop' && activeInfo?.id === stop.id ? 13 : 11,
                             fillColor: getStopColor(index),
                             fillOpacity: 1,
                             strokeColor: '#ffffff',
@@ -266,6 +406,31 @@ export default function Map({
                             fontWeight: 'bold',
                         }}
                         title={stop.address || `Stop ${index + 1}`}
+                    />
+                ))}
+
+                {/* Discover Markers */}
+                {!editMode && discoverPlaces.map((p, index) => (
+                    <Marker
+                        key={p.placeId || p.id || `${p.lat}-${p.lng}-${index}`}
+                        position={{ lat: p.lat, lng: p.lng }}
+                        onClick={() => {
+                            setActiveInfo({
+                                kind: 'discover',
+                                id: p.placeId || p.id,
+                                data: p,
+                                position: { lat: p.lat, lng: p.lng },
+                            })
+                        }}
+                        icon={{
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: activeInfo?.kind === 'discover' && activeInfo?.id === (p.placeId || p.id) ? 11 : 9,
+                            fillColor: isDark ? '#2DD4BF' : '#0F766E',
+                            fillOpacity: 0.95,
+                            strokeColor: '#ffffff',
+                            strokeWeight: 2,
+                        }}
+                        title={p.name}
                     />
                 ))}
 
@@ -282,6 +447,163 @@ export default function Map({
                             },
                         }}
                     />
+                )}
+
+                {/* Custom Popover */}
+                {activeInfo?.position && (
+                    <OverlayView
+                        position={activeInfo.position}
+                        mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                        getPixelPositionOffset={(w, h) => getOffset(w, h)}
+                    >
+                        <div className="pointer-events-auto w-[280px] rounded-3xl border border-border/50 bg-background/90 backdrop-blur-xl shadow-xl overflow-hidden">
+                            <div className="p-4">
+                                <div className="flex items-start gap-3">
+                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 ${activeInfo.kind === 'start' ? 'bg-success/15 text-success' :
+                                        activeInfo.kind === 'end' ? 'bg-destructive/15 text-destructive' :
+                                            activeInfo.kind === 'stop' ? 'bg-warning/15 text-warning' :
+                                                'bg-primary/12 text-primary'
+                                        }`}>
+                                        {activeInfo.kind === 'start' ? <Navigation className="w-5 h-5" /> :
+                                            activeInfo.kind === 'end' ? <Flag className="w-5 h-5" /> :
+                                                <MapPin className="w-5 h-5" />}
+                                    </div>
+
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                                <div className="text-sm font-semibold truncate">
+                                                    {activeInfo.kind === 'start'
+                                                        ? (activeInfo.data?.name || 'Start')
+                                                        : activeInfo.kind === 'end'
+                                                            ? (activeInfo.data?.name || 'End')
+                                                            : activeInfo.kind === 'stop'
+                                                                ? (activeInfo.data?.name || `Stop ${typeof activeInfo.data?.index === 'number' ? activeInfo.data.index + 1 : ''}`)
+                                                                : (activeInfo.data?.name || 'Place')}
+                                </div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                    {activeInfo.data?.address || `${activeInfo.position.lat.toFixed(5)}, ${activeInfo.position.lng.toFixed(5)}`}
+                                </div>
+                            </div>
+                                            <button
+                                                onClick={() => setActiveInfo(null)}
+                                                className="h-8 w-8 rounded-full hover:bg-secondary/60 text-muted-foreground transition-colors focus-ring flex items-center justify-center"
+                                                aria-label="Close"
+                                            >
+                                                <span className="text-lg leading-none">×</span>
+                                            </button>
+                                        </div>
+
+                                        {typeof activeInfo.data?.rating === 'number' && (
+                                            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                                                <span className="inline-flex items-center gap-1 text-foreground">
+                                                    <Star className="w-3.5 h-3.5 text-warning" />
+                                                    {activeInfo.data.rating.toFixed(1)}
+                                                </span>
+                                                {activeInfo.data.userRatingsTotal ? (
+                                                    <span>({activeInfo.data.userRatingsTotal})</span>
+                                                ) : null}
+                                                {activeInfo.data.isOpenNow === true ? (
+                                                    <span className="ml-auto text-success font-semibold">Open now</span>
+                                                ) : null}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {activeInfo.data?.photoUrl && (
+                                    <div className="mt-3 h-[112px] rounded-2xl overflow-hidden border border-border/50 bg-secondary/40">
+                                        <img
+                                            src={activeInfo.data.photoUrl}
+                                            alt={activeInfo.data?.name || 'Place photo'}
+                                            className="w-full h-full object-cover"
+                                            loading="lazy"
+                                            decoding="async"
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {activeInfo.kind === 'discover' && (
+                                        <>
+                                            <button
+                                                className="h-9 px-3 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity focus-ring inline-flex items-center gap-2"
+                                                onClick={() => {
+                                                    onAddStop({
+                                                        lat: activeInfo.position.lat,
+                                                        lng: activeInfo.position.lng,
+                                                        address: activeInfo.data?.address || activeInfo.data?.name,
+                                                        name: activeInfo.data?.name,
+                                                        type: activeInfo.data?.type,
+                                                        placeId: activeInfo.data?.placeId,
+                                                    })
+                                                    setActiveInfo(null)
+                                                }}
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                Add stop
+                                            </button>
+                                            <button
+                                                className="h-9 px-3 rounded-full bg-secondary/60 hover:bg-secondary border border-border/50 text-xs font-semibold focus-ring inline-flex items-center gap-2"
+                                                onClick={() => {
+                                                    onSetStart({
+                                                        lat: activeInfo.position.lat,
+                                                        lng: activeInfo.position.lng,
+                                                        address: activeInfo.data?.address || activeInfo.data?.name,
+                                                        name: activeInfo.data?.name,
+                                                        placeId: activeInfo.data?.placeId,
+                                                    })
+                                                    setActiveInfo(null)
+                                                }}
+                                            >
+                                                <Navigation className="w-3.5 h-3.5" />
+                                                Start
+                                            </button>
+                                            <button
+                                                className="h-9 px-3 rounded-full bg-secondary/60 hover:bg-secondary border border-border/50 text-xs font-semibold focus-ring inline-flex items-center gap-2"
+                                                onClick={() => {
+                                                    onSetEnd({
+                                                        lat: activeInfo.position.lat,
+                                                        lng: activeInfo.position.lng,
+                                                        address: activeInfo.data?.address || activeInfo.data?.name,
+                                                        name: activeInfo.data?.name,
+                                                        placeId: activeInfo.data?.placeId,
+                                                    })
+                                                    setActiveInfo(null)
+                                                }}
+                                            >
+                                                <Flag className="w-3.5 h-3.5" />
+                                                End
+                                            </button>
+                                        </>
+                                    )}
+
+                                    {activeInfo.kind === 'stop' && onRemoveStop && activeInfo.id && (
+                                        <button
+                                            className="h-9 px-3 rounded-full bg-destructive/10 text-destructive text-xs font-semibold hover:bg-destructive/15 transition-colors focus-ring inline-flex items-center gap-2"
+                                            onClick={() => {
+                                                onRemoveStop(activeInfo.id)
+                                                setActiveInfo(null)
+                                            }}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                            Remove
+                                        </button>
+                                    )}
+
+                                    <a
+                                        className="h-9 px-3 rounded-full bg-secondary/60 hover:bg-secondary border border-border/50 text-xs font-semibold focus-ring inline-flex items-center gap-2"
+                                        href={openGoogleMapsLink(activeInfo.data?.placeId, activeInfo.data?.name, activeInfo.position.lat, activeInfo.position.lng)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                        Open
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </OverlayView>
                 )}
             </GoogleMap>
 

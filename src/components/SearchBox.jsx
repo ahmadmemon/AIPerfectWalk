@@ -82,7 +82,7 @@ export default function SearchBox({ onPlaceSelect, placeholder = "Search locatio
         placesService.current.getDetails(
             {
                 placeId: suggestion.place_id,
-                fields: ['geometry', 'formatted_address', 'name'],
+                fields: ['place_id', 'geometry', 'formatted_address', 'name'],
             },
             (place, status) => {
                 if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
@@ -90,6 +90,8 @@ export default function SearchBox({ onPlaceSelect, placeholder = "Search locatio
                         lat: place.geometry.location.lat(),
                         lng: place.geometry.location.lng(),
                         address: place.formatted_address || place.name,
+                        name: place.name,
+                        placeId: place.place_id,
                     }
                     onPlaceSelect(point)
                     setQuery(place.name || place.formatted_address || '')

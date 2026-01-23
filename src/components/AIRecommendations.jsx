@@ -14,7 +14,7 @@ const categories = [
     { id: 'food', label: 'Food', icon: Utensils, color: 'text-orange-500' },
 ]
 
-export default function AIRecommendations({ selectedArea, userLocation, route, onAddStop, initialCategory }) {
+export default function AIRecommendations({ selectedArea, userLocation, route, onAddStop, initialCategory, onVisiblePlacesChange, onPreviewPlace }) {
     const [activeCategory, setActiveCategory] = useState(initialCategory || 'coffee')
     const [didUserPickCategory, setDidUserPickCategory] = useState(false)
     const [sortMode, setSortMode] = useState('recommended') // recommended | closest | top
@@ -116,6 +116,7 @@ export default function AIRecommendations({ selectedArea, userLocation, route, o
             address: suggestion.address || suggestion.name,
             name: suggestion.name,
             type: suggestion.type,
+            placeId: suggestion.placeId || suggestion.id,
         }
 
         if (typeof point.lat === 'number' && typeof point.lng === 'number') {
@@ -190,6 +191,30 @@ export default function AIRecommendations({ selectedArea, userLocation, route, o
         }
         return list
     }, [enrichedSuggestions, sortMode])
+
+    useEffect(() => {
+        if (!onVisiblePlacesChange) return
+        if (activeCategory === 'chat') {
+            onVisiblePlacesChange([])
+            return
+        }
+        const pins = displayedSuggestions
+            .filter((s) => typeof s.lat === 'number' && typeof s.lng === 'number')
+            .map((s) => ({
+                id: s.placeId || s.id,
+                placeId: s.placeId || s.id,
+                name: s.name,
+                address: s.address || '',
+                lat: s.lat,
+                lng: s.lng,
+                photoUrl: s.photoUrl || null,
+                rating: typeof s.rating === 'number' ? s.rating : null,
+                userRatingsTotal: s.userRatingsTotal ?? null,
+                isOpenNow: s.isOpenNow ?? null,
+                type: s.type || null,
+            }))
+        onVisiblePlacesChange(pins)
+    }, [activeCategory, displayedSuggestions, onVisiblePlacesChange])
 
     return (
         <div className="flex flex-col h-full">
@@ -315,6 +340,7 @@ export default function AIRecommendations({ selectedArea, userLocation, route, o
                                 <SuggestionCard
                                     suggestion={suggestion}
                                     onAddToRoute={handleAddToRoute}
+                                    onPreview={onPreviewPlace}
                                 />
                             </div>
                         ))}

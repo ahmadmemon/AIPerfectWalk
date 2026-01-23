@@ -1,4 +1,5 @@
-import { Coffee, Trees, Utensils, MapPin, Plus, Star, Footprints } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Coffee, Trees, Utensils, MapPin, Plus, Star, Footprints, LocateFixed } from 'lucide-react'
 
 const iconMap = {
     coffee: Coffee,
@@ -18,10 +19,11 @@ const colorMap = {
     landmark: { bg: 'bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
 }
 
-export default function SuggestionCard({ suggestion, onAddToRoute }) {
+export default function SuggestionCard({ suggestion, onAddToRoute, onPreview }) {
     const type = suggestion.type || 'coffee'
     const Icon = iconMap[type] || MapPin
     const colors = colorMap[type] || colorMap.coffee
+    const [showPhoto, setShowPhoto] = useState(Boolean(suggestion.photoUrl))
 
     const popularityBadge = {
         'High': { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400' },
@@ -30,6 +32,23 @@ export default function SuggestionCard({ suggestion, onAddToRoute }) {
     }
 
     const badge = popularityBadge[suggestion.popularity] || popularityBadge['Medium']
+
+    const previewPayload = useMemo(() => {
+        if (typeof suggestion.lat !== 'number' || typeof suggestion.lng !== 'number') return null
+        return {
+            id: suggestion.placeId || suggestion.id,
+            placeId: suggestion.placeId || suggestion.id,
+            name: suggestion.name,
+            address: suggestion.address || suggestion.description || '',
+            lat: suggestion.lat,
+            lng: suggestion.lng,
+            photoUrl: suggestion.photoUrl || null,
+            rating: typeof suggestion.rating === 'number' ? suggestion.rating : null,
+            userRatingsTotal: suggestion.userRatingsTotal ?? null,
+            isOpenNow: suggestion.isOpenNow ?? null,
+            type: suggestion.type || null,
+        }
+    }, [suggestion])
 
     return (
         <div className="rounded-3xl border border-border/50 bg-secondary/40 hover:bg-secondary/60 transition-colors animate-fade-in overflow-hidden">
@@ -88,13 +107,15 @@ export default function SuggestionCard({ suggestion, onAddToRoute }) {
                         </div>
                     </div>
 
-                    {suggestion.photoUrl && (
-                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-border/50 bg-background/30 flex-shrink-0">
+                    {suggestion.photoUrl && showPhoto && (
+                        <div className="w-[96px] h-[72px] rounded-2xl overflow-hidden border border-border/50 bg-background/30 flex-shrink-0">
                             <img
                                 src={suggestion.photoUrl}
                                 alt={suggestion.name}
                                 className="w-full h-full object-cover"
                                 loading="lazy"
+                                decoding="async"
+                                onError={() => setShowPhoto(false)}
                             />
                         </div>
                     )}
@@ -102,13 +123,23 @@ export default function SuggestionCard({ suggestion, onAddToRoute }) {
             </div>
 
             <div className="px-4 pb-4">
-                <button
-                    onClick={() => onAddToRoute(suggestion)}
-                    className={`w-full h-10 rounded-2xl border ${colors.border} ${colors.bg} ${colors.text} font-semibold text-sm transition-opacity hover:opacity-85 focus-ring inline-flex items-center justify-center gap-2`}
-                >
-                    <Plus className="w-4 h-4" />
-                    Add stop
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => onAddToRoute(suggestion)}
+                        className={`flex-1 h-10 rounded-2xl border ${colors.border} ${colors.bg} ${colors.text} font-semibold text-sm transition-opacity hover:opacity-85 focus-ring inline-flex items-center justify-center gap-2`}
+                    >
+                        <Plus className="w-4 h-4" />
+                        Add stop
+                    </button>
+                    <button
+                        onClick={() => previewPayload && onPreview?.(previewPayload)}
+                        disabled={!previewPayload}
+                        className="h-10 w-10 rounded-2xl bg-secondary/60 hover:bg-secondary border border-border/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-ring inline-flex items-center justify-center"
+                        aria-label="View on map"
+                    >
+                        <LocateFixed className="w-4 h-4" />
+                    </button>
+                </div>
             </div>
         </div>
     )

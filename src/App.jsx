@@ -41,6 +41,8 @@ function AppContent() {
     const [activeTab, setActiveTab] = useState('builder') // 'builder' | 'saved' | 'discover'
     const [userLocation, setUserLocation] = useState(null)
     const [showOnboarding, setShowOnboarding] = useState(false)
+    const [discoverPlaces, setDiscoverPlaces] = useState([])
+    const [mapFocusPoint, setMapFocusPoint] = useState(null)
 
     const { isLoaded, loadError } = useJsApiLoader({
         googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
@@ -67,6 +69,7 @@ function AppContent() {
         addStop(point)
         // Switch to builder to show the added stop
         setActiveTab('builder')
+        setMapFocusPoint({ ...point, kind: 'stop' })
     }
 
     const summary = getPreferencesSummary()
@@ -152,6 +155,8 @@ function AppContent() {
                     route={route}
                     onAddStop={handleAIAddStop}
                     initialCategory={defaultDiscoverCategory}
+                    onVisiblePlacesChange={setDiscoverPlaces}
+                    onPreviewPlace={(place) => setMapFocusPoint({ ...place, kind: 'discover' })}
                 />
             )}
 
@@ -195,9 +200,13 @@ function AppContent() {
                         onSetStart={setStartPoint}
                         onSetEnd={setEndPoint}
                         onAddStop={addStop}
+                        onRemoveStop={removeStop}
                         onUpdateRouteInfo={updateRouteInfo}
                         selectedArea={selectedArea}
                         onUserLocationChange={handleUserLocationChange}
+                        discoverPlaces={activeTab === 'discover' ? discoverPlaces : []}
+                        focusPoint={mapFocusPoint}
+                        onFocusPointConsumed={() => setMapFocusPoint(null)}
                     />
                 </div>
 
