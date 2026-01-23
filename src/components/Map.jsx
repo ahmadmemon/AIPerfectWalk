@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer } from '@react-google-maps/api'
+import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api'
 import { useTheme } from '../context/ThemeContext'
 import { getStopColor, createPoint, getWaypoints } from '../utils/routeHelpers'
-import { Loader2 } from 'lucide-react'
-
-const LIBRARIES = ['places']
 
 const DEFAULT_CENTER = { lat: 37.7749, lng: -122.4194 } // San Francisco
 
@@ -43,13 +40,13 @@ export default function Map({
     const directionsServiceRef = useRef(null)
     const [directions, setDirections] = useState(null)
     const [userLocation, setUserLocation] = useState(null)
-    const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER)
-    const [mapZoom, setMapZoom] = useState(14)
-
-    const { isLoaded, loadError } = useJsApiLoader({
-        googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
-        libraries: LIBRARIES,
+    const [mapCenter, setMapCenter] = useState(() => {
+        if (selectedArea) {
+            return { lat: selectedArea.lat, lng: selectedArea.lng }
+        }
+        return DEFAULT_CENTER
     })
+    const [mapZoom, setMapZoom] = useState(() => (selectedArea ? 12 : 14))
 
     // Get user's location on mount
     useEffect(() => {
@@ -61,7 +58,9 @@ export default function Map({
                         lng: position.coords.longitude,
                     }
                     setUserLocation(loc)
-                    setMapCenter(loc)
+                    if (!selectedArea) {
+                        setMapCenter(loc)
+                    }
                     if (onUserLocationChange) {
                         onUserLocationChange(loc)
                     }
@@ -71,7 +70,7 @@ export default function Map({
                 }
             )
         }
-    }, [onUserLocationChange])
+    }, [onUserLocationChange, selectedArea])
 
     // Pan to selected area
     useEffect(() => {
@@ -105,7 +104,7 @@ export default function Map({
 
     // Calculate and display route when points change
     useEffect(() => {
-        if (!isLoaded || !route.startPoint || !route.endPoint) {
+        if (!route.startPoint || !route.endPoint) {
             setDirections(null)
             return
         }
@@ -146,14 +145,14 @@ export default function Map({
                 console.error('Directions request failed:', status)
             }
         })
-    }, [isLoaded, route.startPoint, route.endPoint, route.stops, onUpdateRouteInfo])
+    }, [route.startPoint, route.endPoint, route.stops, onUpdateRouteInfo])
 
     // Initialize geocoder
     useEffect(() => {
-        if (isLoaded && !geocoderRef.current) {
+        if (!geocoderRef.current) {
             geocoderRef.current = new google.maps.Geocoder()
         }
-    }, [isLoaded])
+    }, [])
 
     const reverseGeocode = useCallback((latLng, callback) => {
         if (!geocoderRef.current) return callback('')
@@ -203,37 +202,6 @@ export default function Map({
         fullscreenControl: true,
         styles: isDark ? darkModeStyles : [],
         clickableIcons: false,
-    }
-
-    if (loadError) {
-        return (
-            <div className="flex items-center justify-center h-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-slate-800 dark:to-slate-900">
-                <div className="text-center p-8 glass-card rounded-2xl max-w-md mx-4">
-                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                        <span className="text-3xl">🗺️</span>
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-200 mb-2">
-                        Failed to load Google Maps
-                    </h3>
-                    <p className="text-gray-600 dark:text-slate-400 text-sm">
-                        Please check your API key in the .env file
-                    </p>
-                </div>
-            </div>
-        )
-    }
-
-    if (!isLoaded) {
-        return (
-            <div className="flex items-center justify-center h-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-slate-800 dark:to-slate-900">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-blue-500/20 flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                    </div>
-                    <span className="text-gray-600 dark:text-slate-400 font-medium">Loading map...</span>
-                </div>
-            </div>
-        )
     }
 
     return (

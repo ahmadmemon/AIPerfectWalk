@@ -171,3 +171,74 @@ function getFallbackSuggestions(category) {
 export function isGeminiConfigured() {
     return !!import.meta.env.VITE_GEMINI_API_KEY
 }
+
+function extractJsonObject(text) {
+    if (!text) return null
+    const cleaned = text.replace(/```json\s*/g, '```').replace(/```/g, '')
+    const match = cleaned.match(/\{[\s\S]*\}/)
+    return match ? match[0] : null
+}
+
+/**
+ * Chat-style helper for natural language requests.
+ * Returns an object: { reply: string, places: Array<{ query: string, type?: string }> }
+ */
+export async function getChatResponse(message, { location, areaName = '', route } = {}) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+    const routeContext = route?.startPoint && route?.endPoint ? {
+        start: route.startPoint.address || 'start',
+        end: route.endPoint.address || 'end',
+        distanceMeters: route.distance || null,
+        durationSeconds: route.duration || null,
+        stopsCount: route.stops?.length || 0,
+    } : null
+
+    const prompt = `You are PerfectWalk's route assistant.
+
+Context:
+- Area: ${areaName || 'unknown'}
+- Location center: ${location?.lat}, ${location?.lng}
+- Current route context (may be null): ${routeContext ? JSON.stringify(routeContext) : 'null'}
+
+User message:
+${message}
+
+Task:
+1) Reply conversationally and concisely.
+2) If helpful, propose up to 5 real-world place suggestions that the app can look up via Google Places.
+
+Output format:
+Return ONLY valid JSON with this exact shape:
+{
+  "reply": "string",
+  "places": [
+    { "query": "place name or search query", "type": "coffee|food|park|trail|landmark|viewpoint" }
+  ]
+}
+
+Rules:
+- Always include "reply".
+- "places" can be an empty array.
+- Make each "query" something Google Places can find (include neighborhood/city if needed).`
+
+    try {
+        const result = await model.generateContent(prompt)
+        const response = await result.response
+        const text = response.text()
+
+        const jsonText = extractJsonObject(text)
+        if (!jsonText) {
+            return { reply: text.trim(), places: [] }
+        }
+
+        const parsed = JSON.parse(jsonText)
+        return {
+            reply: typeof parsed.reply === 'string' ? parsed.reply : String(parsed.reply || ''),
+            places: Array.isArray(parsed.places) ? parsed.places.filter(p => p && p.query) : [],
+        }
+    } catch (error) {
+        console.error('Gemini chat error:', error)
+        return { reply: 'I had trouble generating a response. Please try again.', places: [] }
+    }
+}

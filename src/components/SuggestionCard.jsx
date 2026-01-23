@@ -32,75 +32,84 @@ export default function SuggestionCard({ suggestion, onAddToRoute }) {
     const badge = popularityBadge[suggestion.popularity] || popularityBadge['Medium']
 
     return (
-        <div className={`
-      p-4 rounded-xl
-      bg-white/60 dark:bg-slate-700/40
-      backdrop-blur-sm
-      border ${colors.border}
-      hover:shadow-lg hover:-translate-y-0.5
-      transition-all duration-300
-      animate-slide-up
-    `}>
-            <div className="flex items-start gap-3">
-                {/* Icon */}
-                <div className={`
-          p-2.5 rounded-xl ${colors.bg}
-          flex items-center justify-center
-        `}>
-                    <Icon className={`w-5 h-5 ${colors.text}`} />
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-semibold text-gray-800 dark:text-slate-200 text-sm leading-tight">
-                            {suggestion.name}
-                        </h3>
-                        {suggestion.popularity && (
-                            <span className={`
-                text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap
-                ${badge.bg} ${badge.text}
-              `}>
-                                {suggestion.popularity === 'Local Favorite' ? '♥ Favorite' : suggestion.popularity}
-                            </span>
-                        )}
+        <div className="rounded-3xl border border-border/50 bg-secondary/40 hover:bg-secondary/60 transition-colors animate-fade-in overflow-hidden">
+            <div className="p-4">
+                <div className="flex items-start gap-3">
+                    <div className={`p-2.5 rounded-2xl ${colors.bg} flex items-center justify-center flex-shrink-0`}>
+                        <Icon className={`w-5 h-5 ${colors.text}`} />
                     </div>
 
-                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 line-clamp-2">
-                        {suggestion.description}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                            <h3 className="font-semibold text-sm leading-tight truncate">{suggestion.name}</h3>
+                            {suggestion.popularity && (
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${badge.bg} ${badge.text}`}>
+                                    {suggestion.popularity === 'Local Favorite' ? '♥ Favorite' : suggestion.popularity}
+                                </span>
+                            )}
+                        </div>
 
-                    {/* Extra info */}
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                        {suggestion.difficulty && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-600 text-gray-600 dark:text-slate-300">
-                                {suggestion.difficulty}
-                            </span>
-                        )}
-                        {suggestion.cuisine && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-600 text-gray-600 dark:text-slate-300">
-                                {suggestion.cuisine}
-                            </span>
-                        )}
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                            {suggestion.description || suggestion.address}
+                        </p>
+
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            {typeof suggestion.rating === 'number' && (
+                                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-background/40 border border-border/50 text-foreground">
+                                    <Star className="w-3 h-3 text-warning" />
+                                    {suggestion.rating.toFixed(1)}
+                                    {suggestion.userRatingsTotal ? (
+                                        <span className="text-muted-foreground">
+                                            ({suggestion.userRatingsTotal})
+                                        </span>
+                                    ) : null}
+                                </span>
+                            )}
+                            {typeof suggestion.distanceMeters === 'number' && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-background/40 border border-border/50 text-muted-foreground">
+                                    {suggestion.distanceLabel}
+                                </span>
+                            )}
+                            {suggestion.isOpenNow === true && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-success/15 border border-success/25 text-success">
+                                    Open now
+                                </span>
+                            )}
+                            {suggestion.difficulty && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-background/40 border border-border/50 text-muted-foreground">
+                                    {suggestion.difficulty}
+                                </span>
+                            )}
+                            {suggestion.cuisine && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-background/40 border border-border/50 text-muted-foreground">
+                                    {suggestion.cuisine}
+                                </span>
+                            )}
+                        </div>
                     </div>
+
+                    {suggestion.photoUrl && (
+                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-border/50 bg-background/30 flex-shrink-0">
+                            <img
+                                src={suggestion.photoUrl}
+                                alt={suggestion.name}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Add to Route Button */}
-            <button
-                onClick={() => onAddToRoute(suggestion)}
-                className={`
-          w-full mt-3 flex items-center justify-center gap-2
-          px-3 py-2 rounded-lg
-          ${colors.bg} ${colors.text}
-          hover:opacity-80
-          font-medium text-sm
-          transition-all duration-200
-        `}
-            >
-                <Plus className="w-4 h-4" />
-                Add to Route
-            </button>
+            <div className="px-4 pb-4">
+                <button
+                    onClick={() => onAddToRoute(suggestion)}
+                    className={`w-full h-10 rounded-2xl border ${colors.border} ${colors.bg} ${colors.text} font-semibold text-sm transition-opacity hover:opacity-85 focus-ring inline-flex items-center justify-center gap-2`}
+                >
+                    <Plus className="w-4 h-4" />
+                    Add stop
+                </button>
+            </div>
         </div>
     )
 }

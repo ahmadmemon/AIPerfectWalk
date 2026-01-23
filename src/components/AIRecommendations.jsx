@@ -1,17 +1,23 @@
-import { useState, useEffect } from 'react'
-import { Coffee, Trees, Utensils, Footprints, Sparkles, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
+import { useMemo, useState, useEffect } from 'react'
+import { Coffee, Trees, Utensils, Footprints, Sparkles, Loader2, AlertCircle, RefreshCw, MessageSquare } from 'lucide-react'
 import SuggestionCard from './SuggestionCard'
 import { getRecommendations, isGeminiConfigured } from '../services/geminiService'
+import { getNearbySuggestions, resolvePlaceQuery } from '../services/placesService'
+import GeminiChat from './GeminiChat'
+import { formatMetersShort, haversineDistanceMeters } from '../utils/geo'
 
 const categories = [
+    { id: 'chat', label: 'Chat', icon: MessageSquare, color: 'text-purple-500' },
     { id: 'coffee', label: 'Coffee', icon: Coffee, color: 'text-amber-500' },
     { id: 'trails', label: 'Trails', icon: Footprints, color: 'text-green-500' },
     { id: 'parks', label: 'Parks', icon: Trees, color: 'text-emerald-500' },
     { id: 'food', label: 'Food', icon: Utensils, color: 'text-orange-500' },
 ]
 
-export default function AIRecommendations({ selectedArea, userLocation, onAddStop }) {
-    const [activeCategory, setActiveCategory] = useState('coffee')
+export default function AIRecommendations({ selectedArea, userLocation, route, onAddStop, initialCategory }) {
+    const [activeCategory, setActiveCategory] = useState(initialCategory || 'coffee')
+    const [didUserPickCategory, setDidUserPickCategory] = useState(false)
+    const [sortMode, setSortMode] = useState('recommended') // recommended | closest | top
     const [suggestions, setSuggestions] = useState([])
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState(null)
@@ -19,7 +25,22 @@ export default function AIRecommendations({ selectedArea, userLocation, onAddSto
     const location = selectedArea || userLocation
 
     useEffect(() => {
-        if (location) {
+        // Reset sort when switching categories
+        if (activeCategory === 'coffee' || activeCategory === 'food' || activeCategory === 'parks') {
+            setSortMode(activeCategory === 'parks' ? 'closest' : 'top')
+        } else {
+            setSortMode('recommended')
+        }
+    }, [activeCategory])
+
+    useEffect(() => {
+        if (!didUserPickCategory && initialCategory) {
+            setActiveCategory(initialCategory)
+        }
+    }, [didUserPickCategory, initialCategory])
+
+    useEffect(() => {
+        if (activeCategory !== 'chat' && location) {
             fetchSuggestions()
         }
     }, [activeCategory, location?.lat, location?.lng])
@@ -31,12 +52,55 @@ export default function AIRecommendations({ selectedArea, userLocation, onAddSto
         setError(null)
 
         try {
-            const results = await getRecommendations(
-                activeCategory,
-                location,
-                selectedArea?.name || ''
-            )
-            setSuggestions(results)
+            if (activeCategory === 'coffee' || activeCategory === 'parks' || activeCategory === 'food') {
+                const results = await getNearbySuggestions(activeCategory, location)
+                setSuggestions(results)
+                return
+            }
+
+            if (activeCategory === 'trails') {
+                if (!isGeminiConfigured()) {
+                    setSuggestions([])
+                    setError('Gemini API is not configured')
+                    return
+                }
+
+                const results = await getRecommendations(
+                    activeCategory,
+                    location,
+                    selectedArea?.name || ''
+                )
+
+                const resolved = await Promise.all(
+                    results.map(async (s) => {
+                        try {
+                            const match = await resolvePlaceQuery(
+                                `${s.name} ${selectedArea?.name || ''}`.trim(),
+                                location
+                            )
+                            if (match?.lat && match?.lng) {
+                                return {
+                                    ...s,
+                                    address: match.address || s.description,
+                                    lat: match.lat,
+                                    lng: match.lng,
+                                    rating: match.rating ?? null,
+                                    userRatingsTotal: match.userRatingsTotal ?? null,
+                                    photoUrl: match.photoUrl ?? null,
+                                }
+                            }
+                        } catch {
+                            // Ignore resolution errors and keep the original suggestion.
+                        }
+                        return s
+                    })
+                )
+
+                setSuggestions(resolved)
+                return
+            }
+
+            setSuggestions([])
         } catch (err) {
             setError('Failed to load suggestions')
             console.error(err)
@@ -46,66 +110,96 @@ export default function AIRecommendations({ selectedArea, userLocation, onAddSto
     }
 
     const handleAddToRoute = (suggestion) => {
-        // Create a point from the suggestion
-        // Note: In a real app, we'd geocode the name to get coordinates
-        // For now, we'll use the current area location as an approximation
         const point = {
-            id: suggestion.id,
-            lat: location.lat + (Math.random() - 0.5) * 0.01, // Slight offset
-            lng: location.lng + (Math.random() - 0.5) * 0.01,
-            address: suggestion.name,
+            lat: suggestion.lat,
+            lng: suggestion.lng,
+            address: suggestion.address || suggestion.name,
             name: suggestion.name,
             type: suggestion.type,
         }
-        onAddStop(point)
-    }
 
-    if (!isGeminiConfigured()) {
-        return (
-            <div className="p-6 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
-                    <AlertCircle className="w-8 h-8 text-yellow-600 dark:text-yellow-400" />
-                </div>
-                <h3 className="font-semibold text-gray-800 dark:text-slate-200 mb-2">
-                    Gemini API Not Configured
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-slate-400">
-                    Add your Gemini API key to .env file:
-                </p>
-                <code className="block mt-2 text-xs bg-gray-100 dark:bg-slate-700 p-2 rounded-lg text-gray-700 dark:text-slate-300">
-                    VITE_GEMINI_API_KEY=your_key
-                </code>
-            </div>
-        )
+        if (typeof point.lat === 'number' && typeof point.lng === 'number') {
+            onAddStop(point)
+            return
+        }
+
+        // If we don't have coordinates (e.g. Gemini trails), try resolving via Places.
+        resolvePlaceQuery(`${suggestion.name} ${selectedArea?.name || ''}`.trim(), location)
+            .then((match) => {
+                if (match?.lat && match?.lng) {
+                    onAddStop({
+                        lat: match.lat,
+                        lng: match.lng,
+                        address: match.address || suggestion.name,
+                        name: suggestion.name,
+                        type: suggestion.type,
+                    })
+                } else {
+                    // Last resort: approximate near selected area.
+                    onAddStop({
+                        lat: location.lat + (Math.random() - 0.5) * 0.01,
+                        lng: location.lng + (Math.random() - 0.5) * 0.01,
+                        address: suggestion.name,
+                        name: suggestion.name,
+                        type: suggestion.type,
+                    })
+                }
+            })
+            .catch(() => {
+                onAddStop({
+                    lat: location.lat + (Math.random() - 0.5) * 0.01,
+                    lng: location.lng + (Math.random() - 0.5) * 0.01,
+                    address: suggestion.name,
+                    name: suggestion.name,
+                    type: suggestion.type,
+                })
+            })
     }
 
     if (!location) {
         return (
-            <div className="p-6 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <Sparkles className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+            <div className="text-center py-10 text-muted-foreground">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-3xl bg-secondary/60 border border-border/50 flex items-center justify-center">
+                    <Sparkles className="w-7 h-7 text-primary" />
                 </div>
-                <h3 className="font-semibold text-gray-800 dark:text-slate-200 mb-2">
-                    Select an Area First
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-slate-400">
-                    Jump to a city or allow location access to see AI recommendations
-                </p>
+                <h3 className="font-semibold text-foreground mb-2">Select an area first</h3>
+                <p className="text-sm">Use the onboarding “Where” step to choose a region.</p>
             </div>
         )
     }
 
+    const enrichedSuggestions = useMemo(() => {
+        if (!location) return []
+        return suggestions.map((s) => {
+            if (typeof s.lat !== 'number' || typeof s.lng !== 'number') return s
+            const meters = haversineDistanceMeters(location, { lat: s.lat, lng: s.lng })
+            return {
+                ...s,
+                distanceMeters: meters,
+                distanceLabel: meters != null ? formatMetersShort(meters) : undefined,
+            }
+        })
+    }, [location, suggestions])
+
+    const displayedSuggestions = useMemo(() => {
+        const list = [...enrichedSuggestions]
+        if (sortMode === 'closest') {
+            list.sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+        } else if (sortMode === 'top') {
+            list.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1))
+        }
+        return list
+    }, [enrichedSuggestions, sortMode])
+
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="p-4 border-b border-gray-200/50 dark:border-slate-700/50">
+            <div className="pb-4 border-b border-border/50">
                 <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="w-5 h-5 text-purple-500" />
-                    <h2 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
-                        AI Recommendations
-                    </h2>
-                    {selectedArea && (
-                        <span className="text-xs text-gray-400 dark:text-slate-500">
+                    <Sparkles className="w-5 h-5 text-primary" />
+                    <h2 className="text-base font-semibold tracking-tight">Discover</h2>
+                    {selectedArea?.name && (
+                        <span className="text-xs text-muted-foreground truncate">
                             • {selectedArea.name}
                         </span>
                     )}
@@ -118,13 +212,16 @@ export default function AIRecommendations({ selectedArea, userLocation, onAddSto
                         return (
                             <button
                                 key={cat.id}
-                                onClick={() => setActiveCategory(cat.id)}
+                                onClick={() => {
+                                    setDidUserPickCategory(true)
+                                    setActiveCategory(cat.id)
+                                }}
                                 className={`
-                  flex items-center gap-1.5 px-3 py-2 rounded-lg
-                  text-sm font-medium transition-all duration-200
+                  flex items-center gap-2 px-3 py-2 rounded-2xl
+                  text-sm font-semibold transition-all duration-200 border focus-ring
                   ${activeCategory === cat.id
-                                        ? 'bg-white dark:bg-slate-700 shadow-md text-gray-800 dark:text-slate-200'
-                                        : 'text-gray-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50'
+                                        ? 'bg-background text-foreground border-border/50 shadow-sm'
+                                        : 'bg-secondary/60 text-muted-foreground hover:text-foreground border-border/50 hover:bg-secondary'
                                     }
                 `}
                             >
@@ -134,24 +231,72 @@ export default function AIRecommendations({ selectedArea, userLocation, onAddSto
                         )
                     })}
                 </div>
+
+                {(activeCategory === 'coffee' || activeCategory === 'food' || activeCategory === 'parks') && (
+                    <div className="mt-3 flex items-center gap-2">
+                        <div className="text-xs text-muted-foreground mr-1">Sort</div>
+                        {[
+                            { id: 'closest', label: 'Closest' },
+                            { id: 'top', label: 'Top rated' },
+                        ].map((opt) => (
+                            <button
+                                key={opt.id}
+                                onClick={() => setSortMode(opt.id)}
+                                className={`h-9 px-3 rounded-full border text-sm font-semibold transition-colors focus-ring ${sortMode === opt.id
+                                        ? 'bg-primary text-primary-foreground border-primary/30'
+                                        : 'bg-secondary/60 text-muted-foreground hover:text-foreground border-border/50 hover:bg-secondary'
+                                    }`}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-auto p-4">
-                {isLoading ? (
+            <div className="flex-1 overflow-auto pt-4">
+                {activeCategory === 'chat' && !isGeminiConfigured() ? (
+                    <div className="text-center py-8">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-3xl bg-secondary/60 border border-border/50 flex items-center justify-center">
+                            <AlertCircle className="w-7 h-7 text-warning" />
+                        </div>
+                        <h3 className="font-semibold text-foreground mb-2">
+                            Gemini API Not Configured
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                            Add your Gemini API key to `.env`:
+                        </p>
+                        <code className="block mt-2 text-xs bg-secondary/60 border border-border/50 p-2 rounded-2xl text-foreground">
+                            VITE_GEMINI_API_KEY=your_key
+                        </code>
+                    </div>
+                ) : activeCategory === 'chat' ? (
+                    <GeminiChat
+                        selectedArea={selectedArea}
+                        userLocation={userLocation}
+                        route={route}
+                        onAddStop={onAddStop}
+                    />
+                ) : isLoading ? (
                     <div className="flex flex-col items-center justify-center py-12">
-                        <Loader2 className="w-8 h-8 text-purple-500 animate-spin mb-3" />
-                        <p className="text-sm text-gray-500 dark:text-slate-400">
+                        <Loader2 className="w-7 h-7 text-primary animate-spin mb-3" />
+                        <p className="text-sm text-muted-foreground">
                             Finding the best spots...
                         </p>
                     </div>
                 ) : error ? (
                     <div className="text-center py-12">
-                        <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-3" />
-                        <p className="text-sm text-gray-500 dark:text-slate-400 mb-3">{error}</p>
+                        <AlertCircle className="w-7 h-7 text-destructive mx-auto mb-3" />
+                        <p className="text-sm text-muted-foreground mb-3">{error}</p>
+                        {error === 'Gemini API is not configured' && (
+                            <code className="block mt-2 text-xs bg-secondary/60 border border-border/50 p-2 rounded-2xl text-foreground">
+                                VITE_GEMINI_API_KEY=your_key
+                            </code>
+                        )}
                         <button
                             onClick={fetchSuggestions}
-                            className="flex items-center gap-2 px-4 py-2 mx-auto rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                            className="inline-flex items-center gap-2 px-4 py-2 mx-auto rounded-2xl bg-secondary/60 hover:bg-secondary border border-border/50 text-foreground text-sm font-semibold transition-colors focus-ring"
                         >
                             <RefreshCw className="w-4 h-4" />
                             Try Again
@@ -159,13 +304,13 @@ export default function AIRecommendations({ selectedArea, userLocation, onAddSto
                     </div>
                 ) : suggestions.length === 0 ? (
                     <div className="text-center py-12">
-                        <p className="text-sm text-gray-500 dark:text-slate-400">
+                        <p className="text-sm text-muted-foreground">
                             No suggestions found for this area
                         </p>
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {suggestions.map((suggestion, index) => (
+                        {displayedSuggestions.map((suggestion, index) => (
                             <div key={suggestion.id} style={{ animationDelay: `${index * 50}ms` }}>
                                 <SuggestionCard
                                     suggestion={suggestion}
@@ -178,11 +323,11 @@ export default function AIRecommendations({ selectedArea, userLocation, onAddSto
             </div>
 
             {/* Refresh Button */}
-            {!isLoading && suggestions.length > 0 && (
-                <div className="p-4 border-t border-gray-200/50 dark:border-slate-700/50">
+            {activeCategory !== 'chat' && !isLoading && suggestions.length > 0 && (
+                <div className="pt-4 border-t border-border/50">
                     <button
                         onClick={fetchSuggestions}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 font-medium text-sm hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                        className="w-full h-11 flex items-center justify-center gap-2 rounded-2xl bg-secondary/60 hover:bg-secondary border border-border/50 text-foreground font-semibold text-sm transition-colors focus-ring"
                     >
                         <RefreshCw className="w-4 h-4" />
                         Get New Suggestions

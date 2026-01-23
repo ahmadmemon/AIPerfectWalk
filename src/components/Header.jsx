@@ -1,23 +1,29 @@
 import { MapPin } from 'lucide-react'
 import ThemeToggle from './ThemeToggle'
+import PreferencesPill from './PreferencesPill'
 
-export default function Header() {
+export default function Header({ area, preferencesSummary, onEditPreferences }) {
     return (
-        <header className="header-premium px-5 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-                <div className="logo-glow p-2.5 rounded-2xl text-white">
-                    <MapPin className="w-6 h-6" />
+        <header className="h-14 px-4 flex items-center justify-between border-b border-border/50 bg-background/80 backdrop-blur-xl sticky top-0 z-50">
+            <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-primary flex items-center justify-center shadow-sm">
+                    <MapPin className="w-5 h-5 text-primary-foreground" />
                 </div>
-                <div>
-                    <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-emerald-500 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent">
-                        PerfectWalk
+                <div className="hidden sm:block leading-tight">
+                    <h1 className="text-base font-semibold tracking-tight">
+                        Perfect<span className="text-primary">Walk</span>
                     </h1>
-                    <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-                        Plan your perfect route
-                    </p>
+                    <p className="text-[11px] text-muted-foreground">Plan your perfect route</p>
                 </div>
             </div>
-            <ThemeToggle />
+
+            <div className="flex-1 flex justify-center px-4">
+                <PreferencesPill area={area} summary={preferencesSummary} onEdit={onEditPreferences} />
+            </div>
+
+            <div className="flex items-center gap-1">
+                <ThemeToggle />
+            </div>
         </header>
     )
 }

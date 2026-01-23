@@ -1,12 +1,21 @@
 import { useState, useCallback } from 'react'
+import { useJsApiLoader } from '@react-google-maps/api'
 import { ThemeProvider } from './context/ThemeContext'
 import { useRoute } from './hooks/useRoute'
 import { useSavedRoutes } from './hooks/useLocalStorage'
+import { usePreferences } from './hooks/usePreferences'
+import { useIsMobile } from './hooks/useIsMobile'
 import Header from './components/Header'
 import RouteBuilder from './components/RouteBuilder'
 import SavedRoutes from './components/SavedRoutes'
 import AIRecommendations from './components/AIRecommendations'
 import Map from './components/Map'
+import OnboardingFlow from './components/onboarding/OnboardingFlow'
+import TabNav from './components/layout/TabNav'
+import BottomSheet from './components/layout/BottomSheet'
+import { Map as MapIcon, Bookmark, Sparkles } from 'lucide-react'
+
+const LIBRARIES = ['places']
 
 function AppContent() {
     const {
@@ -26,9 +35,17 @@ function AppContent() {
     } = useRoute()
 
     const { routes, saveRoute, deleteRoute } = useSavedRoutes()
+    const { isLoading: prefsLoading, preferences, updatePreferences, getPreferencesSummary, defaultDiscoverCategory } = usePreferences()
+    const isMobile = useIsMobile()
+
     const [activeTab, setActiveTab] = useState('builder') // 'builder' | 'saved' | 'discover'
     const [userLocation, setUserLocation] = useState(null)
-    const [selectedArea, setSelectedArea] = useState(null)
+    const [showOnboarding, setShowOnboarding] = useState(false)
+
+    const { isLoaded, loadError } = useJsApiLoader({
+        googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
+        libraries: LIBRARIES,
+    })
 
     const handleUserLocationChange = useCallback((loc) => {
         setUserLocation(loc)
@@ -46,107 +63,132 @@ function AppContent() {
         setActiveTab('builder')
     }
 
-    const handleAreaSelect = (area) => {
-        setSelectedArea(area)
-    }
-
     const handleAIAddStop = (point) => {
         addStop(point)
         // Switch to builder to show the added stop
         setActiveTab('builder')
     }
 
+    const summary = getPreferencesSummary()
+    const selectedArea = preferences?.area || null
+    const shouldShowOnboarding = !prefsLoading && (!preferences?.hasCompletedOnboarding || !selectedArea)
+
+    const tabs = [
+        { id: 'builder', label: 'Build', icon: <MapIcon className="w-4 h-4" /> },
+        { id: 'discover', label: 'Discover', icon: <Sparkles className="w-4 h-4" /> },
+        { id: 'saved', label: 'Saved', icon: <Bookmark className="w-4 h-4" /> },
+    ]
+
+    if (loadError) {
+        return (
+            <div className="h-screen flex flex-col">
+                <Header area={null} preferencesSummary={null} onEditPreferences={() => setShowOnboarding(true)} />
+                <div className="flex-1 flex items-center justify-center p-6">
+                    <div className="glass-card rounded-2xl p-6 max-w-md w-full text-center">
+                        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-200">
+                            Failed to load Google Maps
+                        </h2>
+                        <p className="mt-2 text-sm text-gray-600 dark:text-slate-400">
+                            Check `VITE_GOOGLE_MAPS_API_KEY` in `.env` and ensure the Maps JavaScript API is enabled.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    if (!isLoaded) {
+        return (
+            <div className="h-screen flex flex-col">
+                <Header area={null} preferencesSummary={null} onEditPreferences={() => setShowOnboarding(true)} />
+                <div className="flex-1 flex items-center justify-center">
+                    <div className="glass-card rounded-2xl px-6 py-5 text-sm font-medium text-gray-600 dark:text-slate-300">
+                        Loading map services…
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    if (prefsLoading) {
+        return (
+            <div className="h-screen flex flex-col">
+                <Header area={null} preferencesSummary={null} onEditPreferences={() => setShowOnboarding(true)} />
+                <div className="flex-1 flex items-center justify-center">
+                    <div className="glass-card rounded-2xl px-6 py-5 text-sm font-medium text-muted-foreground">
+                        Loading…
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    const sidebarContent = (
+        <div className="space-y-6">
+            <TabNav tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+
+            {activeTab === 'builder' && (
+                <RouteBuilder
+                    route={route}
+                    editMode={editMode}
+                    onSetEditMode={setEditMode}
+                    onSetStart={setStartPoint}
+                    onSetEnd={setEndPoint}
+                    onAddStop={addStop}
+                    onRemoveStop={removeStop}
+                    onReorderStops={reorderStops}
+                    onClearRoute={clearRoute}
+                    onSaveRoute={handleSaveRoute}
+                    hasValidRoute={hasValidRoute}
+                    userLocation={userLocation}
+                    selectedArea={selectedArea}
+                />
+            )}
+
+            {activeTab === 'discover' && (
+                <AIRecommendations
+                    selectedArea={selectedArea}
+                    userLocation={userLocation}
+                    route={route}
+                    onAddStop={handleAIAddStop}
+                    initialCategory={defaultDiscoverCategory}
+                />
+            )}
+
+            {activeTab === 'saved' && (
+                <SavedRoutes
+                    routes={routes}
+                    onLoadRoute={handleLoadRoute}
+                    onDeleteRoute={deleteRoute}
+                />
+            )}
+        </div>
+    )
+
     return (
-        <div className="h-screen flex flex-col">
-            <Header />
+        <div className="min-h-screen bg-background flex flex-col">
+            {(shouldShowOnboarding || showOnboarding) && (
+                <OnboardingFlow
+                    initialPreferences={preferences}
+                    onSkip={() => {
+                        updatePreferences({ hasCompletedOnboarding: true })
+                        setShowOnboarding(false)
+                    }}
+                    onComplete={(prefs) => {
+                        updatePreferences(prefs)
+                        setShowOnboarding(false)
+                    }}
+                />
+            )}
 
-            <div className="flex-1 flex overflow-hidden">
-                {/* Sidebar */}
-                <aside className="w-[340px] flex-shrink-0 sidebar-premium flex flex-col">
-                    {/* Tab Navigation */}
-                    <div className="flex border-b border-gray-200/50 dark:border-slate-700/50">
-                        <button
-                            onClick={() => setActiveTab('builder')}
-                            className={`
-                flex-1 py-3.5 text-xs font-semibold transition-all relative
-                ${activeTab === 'builder'
-                                    ? 'text-blue-600 dark:text-blue-400 tab-active'
-                                    : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
-                                }
-              `}
-                        >
-                            Builder
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('discover')}
-                            className={`
-                flex-1 py-3.5 text-xs font-semibold transition-all relative
-                ${activeTab === 'discover'
-                                    ? 'text-purple-600 dark:text-purple-400 tab-active'
-                                    : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
-                                }
-              `}
-                        >
-                            ✨ Discover
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('saved')}
-                            className={`
-                flex-1 py-3.5 text-xs font-semibold transition-all relative
-                ${activeTab === 'saved'
-                                    ? 'text-blue-600 dark:text-blue-400 tab-active'
-                                    : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
-                                }
-              `}
-                        >
-                            Saved
-                            {routes.length > 0 && (
-                                <span className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
-                                    {routes.length}
-                                </span>
-                            )}
-                        </button>
-                    </div>
+            <Header
+                area={summary?.area || (selectedArea?.name || null)}
+                preferencesSummary={summary?.vibes || null}
+                onEditPreferences={() => setShowOnboarding(true)}
+            />
 
-                    {/* Tab Content */}
-                    <div className="flex-1 overflow-auto">
-                        {activeTab === 'builder' && (
-                            <RouteBuilder
-                                route={route}
-                                editMode={editMode}
-                                onSetEditMode={setEditMode}
-                                onSetStart={setStartPoint}
-                                onSetEnd={setEndPoint}
-                                onAddStop={addStop}
-                                onRemoveStop={removeStop}
-                                onReorderStops={reorderStops}
-                                onClearRoute={clearRoute}
-                                onSaveRoute={handleSaveRoute}
-                                hasValidRoute={hasValidRoute}
-                                userLocation={userLocation}
-                                selectedArea={selectedArea}
-                                onAreaSelect={handleAreaSelect}
-                            />
-                        )}
-                        {activeTab === 'discover' && (
-                            <AIRecommendations
-                                selectedArea={selectedArea}
-                                userLocation={userLocation}
-                                onAddStop={handleAIAddStop}
-                            />
-                        )}
-                        {activeTab === 'saved' && (
-                            <SavedRoutes
-                                routes={routes}
-                                onLoadRoute={handleLoadRoute}
-                                onDeleteRoute={deleteRoute}
-                            />
-                        )}
-                    </div>
-                </aside>
-
-                {/* Map */}
-                <main className="flex-1 relative">
+            <main className="flex-1 flex">
+                <div className={`flex-1 ${isMobile ? 'h-[calc(100vh-56px)]' : ''}`}>
                     <Map
                         route={route}
                         editMode={editMode}
@@ -157,8 +199,20 @@ function AppContent() {
                         selectedArea={selectedArea}
                         onUserLocationChange={handleUserLocationChange}
                     />
-                </main>
-            </div>
+                </div>
+
+                {!isMobile && (
+                    <aside className="w-[380px] border-l border-border/50 bg-card/50 backdrop-blur-xl overflow-y-auto p-4">
+                        {sidebarContent}
+                    </aside>
+                )}
+            </main>
+
+            {isMobile && (
+                <BottomSheet defaultSnap="half">
+                    {sidebarContent}
+                </BottomSheet>
+            )}
         </div>
     )
 }

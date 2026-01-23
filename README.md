@@ -1,37 +1,32 @@
-# PerfectWalk 🚶‍♂️
+# PerfectWalk
 
-**AI-powered route planning for walking and running enthusiasts.**
+**Route planning for walking and running — with optional AI discovery.**
 
 PerfectWalk is a modern web application that helps you plan, visualize, and save custom walking or running routes. Built with Google Maps integration and designed for a seamless user experience.
 
 ---
 
-## 🎯 What We're Building
+## What This Project Does
 
-PerfectWalk aims to be the ultimate route planner for walkers and runners:
+PerfectWalk is a client-side route planner with 3 main areas (after you select an area/region to work in):
 
-### Current (V1.5) ✅
-- **Interactive route creation** - Click on the map or search locations
-- **Multi-stop routes** - Add checkpoints along your path
-- **Real-time directions** - Walking routes with distance and time estimates
-- **Save & manage routes** - Store favorites locally for quick access
-- **Premium UI** - Glassmorphism design with dark/light modes
+### Route Builder (implemented)
+- **Set Start / End / Stops** by clicking the map or searching places
+- **Multi-stop routes** with drag & drop stop reordering
+- **Walking directions** via Google Directions API, with total distance + ETA
+- **Area jump** (city/region selector) to quickly move the map
 
-### Coming Soon (V2) 🚀
-- **AI-powered suggestions** - Gemini integration for smart route recommendations
-- **Natural language** - "Find me a 5K route through parks with coffee stops"
-- **Weather integration** - Best times to walk based on forecasts
-- **User accounts** - Cloud sync across devices
+### Discover (AI) (implemented, early-stage)
+- **Google Places-powered recommendations** for coffee / parks / food with real ratings, photos, and coordinates
+- **Gemini-powered trails + chat** for natural language requests and route ideas
+- **Add-to-route** inserts stops using precise coordinates (Places), with best-effort resolution for Gemini suggestions
 
-### Future Vision 🌟
-- Mobile apps (React Native)
-- Social features (share routes, community paths)
-- Fitness tracking integration
-- Offline maps support
+### Saved Routes (implemented)
+- **Save routes locally** (no account) and reload/delete them later
 
 ---
 
-## ✨ Features
+## Features
 
 | Feature | Description |
 |---------|-------------|
@@ -40,8 +35,10 @@ PerfectWalk aims to be the ultimate route planner for walkers and runners:
 | 📍 **Flexible Waypoints** | Start, end, and unlimited stops |
 | 🔄 **Drag & Drop** | Reorder stops with ease |
 | 📊 **Route Stats** | Distance and estimated walking time |
-| 💾 **Local Storage** | Save routes without an account |
+| 💾 **Local Storage** | Save routes without an account (localStorage) |
 | 🌙 **Dark Mode** | Beautiful themes for day and night |
+| ✨ **Discover (Hybrid)** | Places for real POIs + Gemini for trails/chat |
+| 🌍 **Area Jump** | Jump to a city/region to explore and plan there |
 
 ---
 
@@ -50,8 +47,8 @@ PerfectWalk aims to be the ultimate route planner for walkers and runners:
 - **Frontend**: React 18 + Vite
 - **Styling**: Tailwind CSS + Custom glassmorphism
 - **Maps**: Google Maps JavaScript API
-- **Storage**: localStorage (V1), PostgreSQL (planned)
-- **AI**: Gemini API (V2)
+- **Storage**: localStorage (current)
+- **AI**: Gemini API (optional / experimental)
 
 ---
 
@@ -73,7 +70,7 @@ npm install
 
 # Set up environment variables
 cp .env.example .env
-# Add your Google Maps API key to .env
+# Add your Google Maps API key (and optional Gemini key) to .env
 
 # Start development server
 npm run dev
@@ -93,9 +90,17 @@ npm run dev
    VITE_GOOGLE_MAPS_API_KEY=your_key_here
    ```
 
+### Gemini API Setup (optional)
+
+1. Get an API key from Google AI Studio
+2. Add to `.env`:
+   ```
+   VITE_GEMINI_API_KEY=your_key_here
+   ```
+
 ---
 
-## 📖 Usage Guide
+## Usage Guide
 
 ### Creating a Route
 
@@ -105,10 +110,18 @@ npm run dev
 4. **Reorder** - Drag stops in the sidebar to rearrange
 5. **Save** - Give your route a name for later
 
+### Discover (Hybrid)
+
+1. Select an **Area**
+2. Open the **Discover** tab and choose a category
+3. Click **Add to Route** to insert a suggested stop
+4. Use **Chat** for natural-language requests (Gemini required)
+
 ### Tips
 - Use the search box to quickly find locations
 - The route will update automatically as you add/move points
 - Toggle dark mode for night planning sessions
+- If Gemini is not configured, Discover will prompt you to add `VITE_GEMINI_API_KEY`
 
 ---
 
@@ -121,24 +134,29 @@ src/
 │   ├── SearchBox.jsx       # Location autocomplete
 │   ├── RouteBuilder.jsx    # Route creation controls
 │   ├── SavedRoutes.jsx     # Saved routes list
+│   ├── AIRecommendations.jsx# Discover tab UI
+│   ├── AreaSelector.jsx     # City/region jump
 │   └── ...
 ├── hooks/               # Custom React hooks
 │   ├── useRoute.js         # Route state management
 │   └── useLocalStorage.js  # Persistence helper
 ├── context/             # React contexts
 │   └── ThemeContext.jsx    # Dark/light mode
+├── services/
+│   └── geminiService.js     # Gemini calls + caching/fallbacks
 └── utils/               # Helper functions
 ```
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [x] V1.0 - Core route building
 - [x] V1.5 - Search + Premium UI
-- [ ] V2.0 - Gemini AI integration
-- [ ] V2.5 - Weather + Time suggestions
-- [ ] V3.0 - User accounts + Cloud sync
+- [x] V1.6 - Discover tab (Gemini recommendations)
+- [ ] V2.0 - AI route generation (natural language → full route)
+- [ ] V2.5 - Weather + best-time suggestions
+- [ ] V3.0 - User accounts + cloud sync
 
 ---
 
@@ -148,7 +166,7 @@ Contributions welcome! Please read our contributing guidelines first.
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+No license file is currently included in this repository.
 
 ---
 

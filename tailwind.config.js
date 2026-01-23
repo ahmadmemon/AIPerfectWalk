@@ -1,54 +1,73 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-    content: [
-        "./index.html",
-        "./src/**/*.{js,ts,jsx,tsx}",
-    ],
-    darkMode: 'class',
+    content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
+    darkMode: "class",
     theme: {
         extend: {
+            fontFamily: {
+                sans: ["Inter", "system-ui", "sans-serif"],
+            },
             colors: {
-                // Light mode
-                light: {
-                    bg: '#FAFAFA',
-                    surface: '#FFFFFF',
-                    text: '#1F2937',
-                    muted: '#6B7280',
-                },
-                // Dark mode
-                dark: {
-                    bg: '#0F172A',
-                    surface: '#1E293B',
-                    text: '#F1F5F9',
-                    muted: '#94A3B8',
-                },
-                // Accent colors
+                border: "hsl(var(--border))",
+                input: "hsl(var(--input))",
+                ring: "hsl(var(--ring))",
+                background: "hsl(var(--background))",
+                foreground: "hsl(var(--foreground))",
                 primary: {
-                    light: '#3B82F6',
-                    dark: '#60A5FA',
+                    DEFAULT: "hsl(var(--primary))",
+                    foreground: "hsl(var(--primary-foreground))",
+                },
+                secondary: {
+                    DEFAULT: "hsl(var(--secondary))",
+                    foreground: "hsl(var(--secondary-foreground))",
+                },
+                muted: {
+                    DEFAULT: "hsl(var(--muted))",
+                    foreground: "hsl(var(--muted-foreground))",
                 },
                 accent: {
-                    light: '#10B981',
-                    dark: '#34D399',
-                }
+                    DEFAULT: "hsl(var(--accent))",
+                    foreground: "hsl(var(--accent-foreground))",
+                },
+                destructive: {
+                    DEFAULT: "hsl(var(--destructive))",
+                    foreground: "hsl(var(--destructive-foreground))",
+                },
+                success: {
+                    DEFAULT: "hsl(var(--success))",
+                    foreground: "hsl(var(--success-foreground))",
+                },
+                warning: {
+                    DEFAULT: "hsl(var(--warning))",
+                    foreground: "hsl(var(--warning-foreground))",
+                },
+                card: {
+                    DEFAULT: "hsl(var(--card))",
+                    foreground: "hsl(var(--card-foreground))",
+                },
+            },
+            borderRadius: {
+                xl: "1rem",
+                "2xl": "1.25rem",
+                "3xl": "1.5rem",
             },
             animation: {
-                'fade-in': 'fadeIn 0.3s ease-out',
-                'slide-up': 'slideUp 0.3s ease-out',
-                'pulse-soft': 'pulseSoft 2s infinite',
+                "fade-in": "fade-in 0.2s ease-out",
+                "slide-up": "slide-up 0.3s ease-out",
+                "scale-in": "scale-in 0.2s ease-out",
             },
             keyframes: {
-                fadeIn: {
-                    '0%': { opacity: '0' },
-                    '100%': { opacity: '1' },
+                "fade-in": {
+                    from: { opacity: "0" },
+                    to: { opacity: "1" },
                 },
-                slideUp: {
-                    '0%': { opacity: '0', transform: 'translateY(10px)' },
-                    '100%': { opacity: '1', transform: 'translateY(0)' },
+                "slide-up": {
+                    from: { opacity: "0", transform: "translateY(8px)" },
+                    to: { opacity: "1", transform: "translateY(0)" },
                 },
-                pulseSoft: {
-                    '0%, 100%': { opacity: '1' },
-                    '50%': { opacity: '0.7' },
+                "scale-in": {
+                    from: { opacity: "0", transform: "scale(0.95)" },
+                    to: { opacity: "1", transform: "scale(1)" },
                 },
             },
         },
