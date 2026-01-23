@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ThemeProvider } from './context/ThemeContext'
 import { useRoute } from './hooks/useRoute'
 import { useSavedRoutes } from './hooks/useLocalStorage'
@@ -27,22 +27,10 @@ function AppContent() {
     const { routes, saveRoute, deleteRoute } = useSavedRoutes()
     const [activeTab, setActiveTab] = useState('builder') // 'builder' | 'saved'
     const [userLocation, setUserLocation] = useState(null)
+    const [selectedArea, setSelectedArea] = useState(null)
 
-    // Get user's location on mount
-    useEffect(() => {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setUserLocation({
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude,
-                    })
-                },
-                (error) => {
-                    console.log('Geolocation error:', error.message)
-                }
-            )
-        }
+    const handleUserLocationChange = useCallback((loc) => {
+        setUserLocation(loc)
     }, [])
 
     const handleSaveRoute = (name) => {
@@ -55,6 +43,10 @@ function AppContent() {
     const handleLoadRoute = (savedRoute) => {
         loadRoute(savedRoute)
         setActiveTab('builder')
+    }
+
+    const handleAreaSelect = (area) => {
+        setSelectedArea(area)
     }
 
     return (
@@ -113,6 +105,8 @@ function AppContent() {
                                 onSaveRoute={handleSaveRoute}
                                 hasValidRoute={hasValidRoute}
                                 userLocation={userLocation}
+                                selectedArea={selectedArea}
+                                onAreaSelect={handleAreaSelect}
                             />
                         ) : (
                             <SavedRoutes
@@ -133,6 +127,8 @@ function AppContent() {
                         onSetEnd={setEndPoint}
                         onAddStop={addStop}
                         onUpdateRouteInfo={updateRouteInfo}
+                        selectedArea={selectedArea}
+                        onUserLocationChange={handleUserLocationChange}
                     />
                 </main>
             </div>

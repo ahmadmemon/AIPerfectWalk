@@ -34,6 +34,8 @@ export default function Map({
     onSetEnd,
     onAddStop,
     onUpdateRouteInfo,
+    selectedArea,
+    onUserLocationChange,
 }) {
     const { isDark } = useTheme()
     const mapRef = useRef(null)
@@ -41,6 +43,8 @@ export default function Map({
     const directionsServiceRef = useRef(null)
     const [directions, setDirections] = useState(null)
     const [userLocation, setUserLocation] = useState(null)
+    const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER)
+    const [mapZoom, setMapZoom] = useState(14)
 
     const { isLoaded, loadError } = useJsApiLoader({
         googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
@@ -52,17 +56,52 @@ export default function Map({
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
-                    setUserLocation({
+                    const loc = {
                         lat: position.coords.latitude,
                         lng: position.coords.longitude,
-                    })
+                    }
+                    setUserLocation(loc)
+                    setMapCenter(loc)
+                    if (onUserLocationChange) {
+                        onUserLocationChange(loc)
+                    }
                 },
                 () => {
                     console.log('Geolocation permission denied, using default location')
                 }
             )
         }
-    }, [])
+    }, [onUserLocationChange])
+
+    // Pan to selected area
+    useEffect(() => {
+        if (selectedArea && mapRef.current) {
+            if (selectedArea.bounds) {
+                // Fit to viewport bounds if available
+                mapRef.current.fitBounds(selectedArea.bounds)
+            } else {
+                // Otherwise pan to center
+                mapRef.current.panTo({ lat: selectedArea.lat, lng: selectedArea.lng })
+                mapRef.current.setZoom(12)
+            }
+        }
+    }, [selectedArea])
+
+    // Pan to start point when set
+    useEffect(() => {
+        if (route.startPoint && mapRef.current) {
+            mapRef.current.panTo({ lat: route.startPoint.lat, lng: route.startPoint.lng })
+            mapRef.current.setZoom(16) // Zoom in closer when start point is selected
+        }
+    }, [route.startPoint])
+
+    // Pan to end point when set (less aggressive zoom)
+    useEffect(() => {
+        if (route.endPoint && mapRef.current && !route.startPoint) {
+            mapRef.current.panTo({ lat: route.endPoint.lat, lng: route.endPoint.lng })
+            mapRef.current.setZoom(15)
+        }
+    }, [route.endPoint, route.startPoint])
 
     // Calculate and display route when points change
     useEffect(() => {
@@ -93,6 +132,16 @@ export default function Map({
                 const totalDuration = legs.reduce((sum, leg) => sum + leg.duration.value, 0)
 
                 onUpdateRouteInfo(result.routes[0].overview_path, totalDistance, totalDuration)
+
+                // Fit map to show entire route
+                if (mapRef.current) {
+                    const bounds = new google.maps.LatLngBounds()
+                    result.routes[0].legs.forEach(leg => {
+                        bounds.extend(leg.start_location)
+                        bounds.extend(leg.end_location)
+                    })
+                    mapRef.current.fitBounds(bounds, { padding: 50 })
+                }
             } else {
                 console.error('Directions request failed:', status)
             }
@@ -191,8 +240,8 @@ export default function Map({
         <div className="relative w-full h-full">
             <GoogleMap
                 mapContainerStyle={mapContainerStyle}
-                center={userLocation || DEFAULT_CENTER}
-                zoom={14}
+                center={mapCenter}
+                zoom={mapZoom}
                 onClick={handleMapClick}
                 onLoad={onMapLoad}
                 options={mapOptions}

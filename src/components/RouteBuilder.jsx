@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { MapPin, Flag, Plus, Trash2, Save, Route, Navigation } from 'lucide-react'
 import StopsList from './StopsList'
 import SearchBox from './SearchBox'
+import AreaSelector from './AreaSelector'
 import { formatDistance, formatDuration } from '../utils/routeHelpers'
 
 export default function RouteBuilder({
@@ -17,6 +18,8 @@ export default function RouteBuilder({
     onSaveRoute,
     hasValidRoute,
     userLocation,
+    selectedArea,
+    onAreaSelect,
 }) {
     const [routeName, setRouteName] = useState('')
     const [showSaveForm, setShowSaveForm] = useState(false)
@@ -69,6 +72,14 @@ export default function RouteBuilder({
 
     return (
         <div className="flex flex-col h-full">
+            {/* Area Selector Section */}
+            <div className="p-4 border-b border-gray-200/50 dark:border-slate-700/50">
+                <AreaSelector
+                    onAreaSelect={onAreaSelect}
+                    currentArea={selectedArea}
+                />
+            </div>
+
             {/* Search Section */}
             <div className="p-4 border-b border-gray-200/50 dark:border-slate-700/50">
                 <div className="flex items-center gap-2 mb-3">
@@ -79,7 +90,7 @@ export default function RouteBuilder({
                 </div>
                 <SearchBox
                     onPlaceSelect={handleSearchSelect}
-                    userLocation={userLocation}
+                    userLocation={selectedArea || userLocation}
                     placeholder={
                         editMode === 'start' ? "Search start location..." :
                             editMode === 'end' ? "Search destination..." :

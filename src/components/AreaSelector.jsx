@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, X, MapPin, Loader2 } from 'lucide-react'
+import { Search, X, MapPin, Loader2, Globe } from 'lucide-react'
 
-export default function SearchBox({ onPlaceSelect, placeholder = "Search location...", userLocation }) {
+export default function AreaSelector({ onAreaSelect, currentArea }) {
     const [query, setQuery] = useState('')
     const [suggestions, setSuggestions] = useState([])
     const [isLoading, setIsLoading] = useState(false)
@@ -49,22 +49,12 @@ export default function SearchBox({ onPlaceSelect, placeholder = "Search locatio
 
         setIsLoading(true)
 
-        // Build request with location bias for nearby results
-        const request = {
-            input: value,
-            types: ['geocode', 'establishment'],
-        }
-
-        // Add location bias if user location is available
-        if (userLocation) {
-            request.locationBias = {
-                center: userLocation,
-                radius: 50000, // 50km radius bias
-            }
-        }
-
+        // Search for cities, regions, countries
         autocompleteService.current.getPlacePredictions(
-            request,
+            {
+                input: value,
+                types: ['(regions)'], // Cities, states, countries
+            },
             (predictions, status) => {
                 setIsLoading(false)
                 if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
@@ -86,13 +76,14 @@ export default function SearchBox({ onPlaceSelect, placeholder = "Search locatio
             },
             (place, status) => {
                 if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
-                    const point = {
+                    const area = {
                         lat: place.geometry.location.lat(),
                         lng: place.geometry.location.lng(),
-                        address: place.formatted_address || place.name,
+                        name: place.name || place.formatted_address,
+                        bounds: place.geometry.viewport,
                     }
-                    onPlaceSelect(point)
-                    setQuery(place.name || place.formatted_address || '')
+                    onAreaSelect(area)
+                    setQuery('')
                     setSuggestions([])
                     setIsFocused(false)
                 }
@@ -108,22 +99,39 @@ export default function SearchBox({ onPlaceSelect, placeholder = "Search locatio
 
     return (
         <div className="relative">
+            {/* Current Area Display */}
+            {currentArea && !isFocused && (
+                <div className="mb-2 flex items-center gap-2 text-sm">
+                    <Globe className="w-4 h-4 text-emerald-500" />
+                    <span className="font-medium text-gray-700 dark:text-slate-300">
+                        {currentArea.name}
+                    </span>
+                    <button
+                        onClick={() => onAreaSelect(null)}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300"
+                    >
+                        <X className="w-3 h-3" />
+                    </button>
+                </div>
+            )}
+
             <div className={`
         relative flex items-center
-        bg-white/80 dark:bg-slate-700/80
+        bg-gradient-to-r from-emerald-500/10 to-blue-500/10
+        dark:from-emerald-500/20 dark:to-blue-500/20
         backdrop-blur-sm
         border-2 transition-all duration-200
         ${isFocused
-                    ? 'border-blue-500 dark:border-blue-400 shadow-lg shadow-blue-500/20'
-                    : 'border-gray-200 dark:border-slate-600'
+                    ? 'border-emerald-500 dark:border-emerald-400 shadow-lg shadow-emerald-500/20'
+                    : 'border-emerald-200 dark:border-emerald-700'
                 }
         rounded-xl overflow-hidden
       `}>
-                <div className="pl-3 text-gray-400 dark:text-slate-500">
+                <div className="pl-3 text-emerald-500 dark:text-emerald-400">
                     {isLoading ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
                     ) : (
-                        <Search className="w-5 h-5" />
+                        <Globe className="w-5 h-5" />
                     )}
                 </div>
 
@@ -134,7 +142,7 @@ export default function SearchBox({ onPlaceSelect, placeholder = "Search locatio
                     onChange={(e) => handleSearch(e.target.value)}
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-                    placeholder={placeholder}
+                    placeholder="Jump to city, state, or country..."
                     className="
             flex-1 px-3 py-3
             bg-transparent
@@ -171,11 +179,11 @@ export default function SearchBox({ onPlaceSelect, placeholder = "Search locatio
                             onClick={() => handleSelect(suggestion)}
                             className="
                 w-full flex items-start gap-3 px-4 py-3
-                hover:bg-gray-50 dark:hover:bg-slate-700
+                hover:bg-emerald-50 dark:hover:bg-emerald-900/20
                 transition-colors text-left
               "
                         >
-                            <MapPin className="w-4 h-4 mt-0.5 text-gray-400 dark:text-slate-500 flex-shrink-0" />
+                            <Globe className="w-4 h-4 mt-0.5 text-emerald-500 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-gray-800 dark:text-slate-200 truncate">
                                     {suggestion.structured_formatting?.main_text || suggestion.description}
