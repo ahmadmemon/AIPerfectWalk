@@ -26,7 +26,7 @@ const mapContainerStyle = {
     height: '100%',
 }
 
-export default function Map({
+export default function MapView({
     route,
     previewRoute,
     editMode,
