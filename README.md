@@ -14,6 +14,7 @@ PerfectWalk is a client-side route planner with 3 main areas (after you select a
 - **Set Start / End / Stops** by clicking the map or searching places
 - **Multi-stop routes** with drag & drop stop reordering
 - **Walking directions** via Google Directions API, with total distance + ETA
+- **AI route generation (V2.0)**: describe a walk → preview a full route → apply to the map
 - **Area jump** (city/region selector) to quickly move the map
 
 ### Discover (AI) (implemented, early-stage)
@@ -38,6 +39,7 @@ PerfectWalk is a client-side route planner with 3 main areas (after you select a
 | 💾 **Local Storage** | Save routes without an account (localStorage) |
 | 🌙 **Dark Mode** | Beautiful themes for day and night |
 | ✨ **Discover (Hybrid)** | Places for real POIs + Gemini for trails/chat |
+| 🤖 **AI Route Generation** | Natural language prompt → complete start/stops/end route (with map preview) |
 | 🌍 **Area Jump** | Jump to a city/region to explore and plan there |
 
 ---
@@ -117,6 +119,18 @@ npm run dev
 3. Click **Add to Route** to insert a suggested stop
 4. Use **Chat** for natural-language requests (Gemini required)
 
+### AI Route Generator (V2.0)
+
+1. Select an **Area** (or allow location access)
+2. In the **Build** tab, enter a prompt or tap a template
+3. Click **Generate** to preview a full route
+4. Review the dashed route preview on the map, then click **Use This Route**
+
+Example prompts:
+- “Plan a 5km scenic walk through parks with one coffee stop”
+- “Create a park hopping route visiting 3-4 parks and viewpoints”
+- “Make a historic walk with landmarks and a bakery stop”
+
 ### Tips
 - Use the search box to quickly find locations
 - The route will update automatically as you add/move points
@@ -133,13 +147,17 @@ src/
 │   ├── Map.jsx             # Google Maps display
 │   ├── SearchBox.jsx       # Location autocomplete
 │   ├── RouteBuilder.jsx    # Route creation controls
+│   ├── RouteGenerator.jsx  # AI route generation UI (V2.0)
 │   ├── SavedRoutes.jsx     # Saved routes list
 │   ├── AIRecommendations.jsx# Discover tab UI
 │   ├── AreaSelector.jsx     # City/region jump
 │   └── ...
 ├── hooks/               # Custom React hooks
 │   ├── useRoute.js         # Route state management
+│   ├── useRouteGenerator.js# AI route generation state
 │   └── useLocalStorage.js  # Persistence helper
+├── data/
+│   └── routeTemplates.js   # Quick prompt templates for AI generation
 ├── context/             # React contexts
 │   └── ThemeContext.jsx    # Dark/light mode
 ├── services/
@@ -154,7 +172,7 @@ src/
 - [x] V1.0 - Core route building
 - [x] V1.5 - Search + Premium UI
 - [x] V1.6 - Discover tab (Gemini recommendations)
-- [ ] V2.0 - AI route generation (natural language → full route)
+- [x] V2.0 - AI route generation (natural language → full route)
 - [ ] V2.5 - Weather + best-time suggestions
 - [ ] V3.0 - User accounts + cloud sync
 
