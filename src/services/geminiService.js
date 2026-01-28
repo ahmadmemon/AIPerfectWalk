@@ -1,10 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { isPlacesConfigured, resolvePlaceQuery } from './placesService'
 
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || '')
 
 // Cache for suggestions to avoid repeated API calls
 const cache = new Map()
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const DEFAULT_CENTER = { lat: 37.7749, lng: -122.4194 } // San Francisco
 
 function getCacheKey(type, location) {
     return `${type}-${location.lat.toFixed(3)}-${location.lng.toFixed(3)}`
@@ -177,6 +179,183 @@ function extractJsonObject(text) {
     const cleaned = text.replace(/```json\s*/g, '```').replace(/```/g, '')
     const match = cleaned.match(/\{[\s\S]*\}/)
     return match ? match[0] : null
+}
+
+function clampStops(stops, max = 6) {
+    if (!Array.isArray(stops)) return []
+    return stops.filter(Boolean).slice(0, max)
+}
+
+function isValidLatLng(point) {
+    return point && typeof point.lat === 'number' && typeof point.lng === 'number'
+}
+
+function nudgeLatLng(loc, seed = 1) {
+    if (!isValidLatLng(loc)) return loc
+    const delta = 0.0015 + (seed % 3) * 0.0004
+    return { lat: loc.lat + delta, lng: loc.lng + delta * 0.6 }
+}
+
+function getFallbackRoute({ prompt, area, userLocation } = {}) {
+    const base = (isValidLatLng(userLocation) && userLocation)
+        || (isValidLatLng(area) && { lat: area.lat, lng: area.lng })
+        || DEFAULT_CENTER
+
+    const start = { ...base, name: 'Start' }
+    const end = { ...nudgeLatLng(base, 2), name: 'End' }
+
+    return {
+        start,
+        stops: [],
+        end,
+        totalDistance: '',
+        description: typeof prompt === 'string' && prompt.trim()
+            ? `A simple walk based on: ${prompt.trim()}`
+            : 'A simple walk route.',
+    }
+}
+
+/**
+ * Generate a route from a natural language prompt.
+ * Returns: { start, stops, end, totalDistance, description }
+ */
+export async function generateRoute(prompt, area, userLocation) {
+    if (!isGeminiConfigured()) {
+        return getFallbackRoute({ prompt, area, userLocation })
+    }
+
+    const areaName = area?.name || ''
+    const contextLocation = (isValidLatLng(userLocation) && userLocation)
+        || (isValidLatLng(area) && { lat: area.lat, lng: area.lng })
+        || DEFAULT_CENTER
+
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+    const aiPrompt = `You are PerfectWalk's AI route generator.
+
+Context:
+- Area name: ${areaName || 'unknown'}
+- Center coordinates: ${contextLocation.lat}, ${contextLocation.lng}
+
+User request:
+${typeof prompt === 'string' ? prompt : ''}
+
+Task:
+Create a walking route with a start, 1-5 intermediate stops, and an end. Use real-world places that a user can search for in Google Maps/Google Places in the given area.
+
+Output format:
+Return ONLY valid JSON with this exact shape:
+{
+  "start": { "name": "string", "query": "string (search query)", "lat": number|null, "lng": number|null },
+  "stops": [{ "name": "string", "query": "string", "lat": number|null, "lng": number|null }],
+  "end": { "name": "string", "query": "string", "lat": number|null, "lng": number|null },
+  "totalDistance": "string (e.g., 5 km)",
+  "description": "string (1-2 sentences)"
+}
+
+Rules:
+- Prefer using "query" that will resolve in Google Places (include city/neighborhood if helpful).
+- If you include lat/lng, they must be realistic and match the place.
+- Keep stops to at most 5.
+- The route should be walkable and coherent.`
+
+    try {
+        const result = await model.generateContent(aiPrompt)
+        const response = await result.response
+        const text = response.text()
+
+        const jsonText = extractJsonObject(text)
+        if (!jsonText) {
+            return getFallbackRoute({ prompt, area, userLocation })
+        }
+
+        const parsed = JSON.parse(jsonText)
+
+        const startPlan = parsed?.start || null
+        const endPlan = parsed?.end || null
+        const stopsPlan = clampStops(parsed?.stops, 5)
+
+        const canResolve = (() => {
+            try {
+                return isPlacesConfigured()
+            } catch {
+                return false
+            }
+        })()
+
+        async function resolvePlannedPoint(planned, fallbackName, fallbackLoc) {
+            const base = {
+                name: typeof planned?.name === 'string' ? planned.name : fallbackName,
+                lat: typeof planned?.lat === 'number' ? planned.lat : null,
+                lng: typeof planned?.lng === 'number' ? planned.lng : null,
+                query: typeof planned?.query === 'string' ? planned.query : '',
+            }
+
+            if (typeof base.lat === 'number' && typeof base.lng === 'number') {
+                return { lat: base.lat, lng: base.lng, name: base.name }
+            }
+
+            if (!canResolve) {
+                return { ...fallbackLoc, name: base.name }
+            }
+
+            const query = (base.query || base.name || '').trim()
+            if (!query) {
+                return { ...fallbackLoc, name: base.name }
+            }
+
+            const enrichedQuery = areaName ? `${query} ${areaName}` : query
+            try {
+                const match = await resolvePlaceQuery(enrichedQuery, contextLocation)
+                if (match && typeof match.lat === 'number' && typeof match.lng === 'number') {
+                    return { lat: match.lat, lng: match.lng, name: base.name || match.name || 'Place' }
+                }
+            } catch {
+                // ignore and fall back
+            }
+
+            return { ...fallbackLoc, name: base.name }
+        }
+
+        const startFallback = contextLocation
+        const start = await resolvePlannedPoint(startPlan, 'Start', startFallback)
+
+        const resolvedStops = []
+        for (let i = 0; i < stopsPlan.length; i++) {
+            const stopFallback = nudgeLatLng(contextLocation, i + 10) || contextLocation
+            // eslint-disable-next-line no-await-in-loop
+            const stop = await resolvePlannedPoint(stopsPlan[i], `Stop ${i + 1}`, stopFallback)
+            if (isValidLatLng(stop)) {
+                resolvedStops.push(stop)
+            }
+        }
+
+        let endFallback = nudgeLatLng(contextLocation, 99) || contextLocation
+        const end = await resolvePlannedPoint(endPlan, 'End', endFallback)
+
+        const safeTotalDistance = typeof parsed?.totalDistance === 'string' ? parsed.totalDistance : ''
+        const safeDescription = typeof parsed?.description === 'string'
+            ? parsed.description
+            : 'A custom walking route generated from your request.'
+
+        // Avoid start=end with no waypoints (Directions can behave oddly).
+        if (!resolvedStops.length && isValidLatLng(start) && isValidLatLng(end) && start.lat === end.lat && start.lng === end.lng) {
+            const nudged = nudgeLatLng(end, 5)
+            end.lat = nudged.lat
+            end.lng = nudged.lng
+        }
+
+        return {
+            start: { lat: start.lat, lng: start.lng, name: start.name || 'Start' },
+            stops: resolvedStops.map((s) => ({ lat: s.lat, lng: s.lng, name: s.name || 'Stop' })),
+            end: { lat: end.lat, lng: end.lng, name: end.name || 'End' },
+            totalDistance: safeTotalDistance,
+            description: safeDescription,
+        }
+    } catch (error) {
+        console.error('Generate route error:', error)
+        return getFallbackRoute({ prompt, area, userLocation })
+    }
 }
 
 /**
