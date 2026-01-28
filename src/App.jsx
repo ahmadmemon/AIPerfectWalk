@@ -6,6 +6,7 @@ import { useSavedRoutes } from './hooks/useLocalStorage'
 import { usePreferences } from './hooks/usePreferences'
 import { useIsMobile } from './hooks/useIsMobile'
 import Header from './components/Header'
+import RouteGenerator from './components/RouteGenerator'
 import RouteBuilder from './components/RouteBuilder'
 import SavedRoutes from './components/SavedRoutes'
 import AIRecommendations from './components/AIRecommendations'
@@ -43,6 +44,7 @@ function AppContent() {
     const [showOnboarding, setShowOnboarding] = useState(false)
     const [discoverPlaces, setDiscoverPlaces] = useState([])
     const [mapFocusPoint, setMapFocusPoint] = useState(null)
+    const [previewRoute, setPreviewRoute] = useState(null)
 
     const { isLoaded, loadError } = useJsApiLoader({
         googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
@@ -61,16 +63,26 @@ function AppContent() {
     }
 
     const handleLoadRoute = (savedRoute) => {
+        setPreviewRoute(null)
         loadRoute(savedRoute)
         setActiveTab('builder')
     }
 
     const handleAIAddStop = (point) => {
+        setPreviewRoute(null)
         addStop(point)
         // Switch to builder to show the added stop
         setActiveTab('builder')
         setMapFocusPoint({ ...point, kind: 'stop' })
     }
+
+    const handleUseGeneratedRoute = useCallback((routeData) => {
+        if (!routeData?.startPoint || !routeData?.endPoint) return
+        setPreviewRoute(null)
+        loadRoute(routeData)
+        setActiveTab('builder')
+        setMapFocusPoint({ ...routeData.startPoint, kind: 'start' })
+    }, [loadRoute])
 
     const summary = getPreferencesSummary()
     const selectedArea = preferences?.area || null
@@ -131,21 +143,32 @@ function AppContent() {
             <TabNav tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
             {activeTab === 'builder' && (
-                <RouteBuilder
-                    route={route}
-                    editMode={editMode}
-                    onSetEditMode={setEditMode}
-                    onSetStart={setStartPoint}
-                    onSetEnd={setEndPoint}
-                    onAddStop={addStop}
-                    onRemoveStop={removeStop}
-                    onReorderStops={reorderStops}
-                    onClearRoute={clearRoute}
-                    onSaveRoute={handleSaveRoute}
-                    hasValidRoute={hasValidRoute}
-                    userLocation={userLocation}
-                    selectedArea={selectedArea}
-                />
+                <div className="space-y-6">
+                    <RouteGenerator
+                        selectedArea={selectedArea}
+                        userLocation={userLocation}
+                        onPreviewRoute={setPreviewRoute}
+                        onUseRoute={handleUseGeneratedRoute}
+                    />
+                    <RouteBuilder
+                        route={route}
+                        editMode={editMode}
+                        onSetEditMode={setEditMode}
+                        onSetStart={setStartPoint}
+                        onSetEnd={setEndPoint}
+                        onAddStop={addStop}
+                        onRemoveStop={removeStop}
+                        onReorderStops={reorderStops}
+                        onClearRoute={() => {
+                            setPreviewRoute(null)
+                            clearRoute()
+                        }}
+                        onSaveRoute={handleSaveRoute}
+                        hasValidRoute={hasValidRoute}
+                        userLocation={userLocation}
+                        selectedArea={selectedArea}
+                    />
+                </div>
             )}
 
             {activeTab === 'discover' && (
@@ -196,6 +219,7 @@ function AppContent() {
                 <div className={`flex-1 ${isMobile ? 'h-[calc(100vh-56px)]' : ''}`}>
                     <Map
                         route={route}
+                        previewRoute={previewRoute}
                         editMode={editMode}
                         onSetStart={setStartPoint}
                         onSetEnd={setEndPoint}
@@ -207,6 +231,8 @@ function AppContent() {
                         discoverPlaces={activeTab === 'discover' ? discoverPlaces : []}
                         focusPoint={mapFocusPoint}
                         onFocusPointConsumed={() => setMapFocusPoint(null)}
+                        onPreviewRouteConfirm={() => handleUseGeneratedRoute(previewRoute)}
+                        onPreviewRouteDismiss={() => setPreviewRoute(null)}
                     />
                 </div>
 
