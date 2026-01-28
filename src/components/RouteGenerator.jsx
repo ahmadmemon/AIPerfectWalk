@@ -20,6 +20,8 @@ export default function RouteGenerator({ selectedArea, userLocation, onPreviewRo
     }, [onPreviewRoute, result?.loadRouteData])
 
     const handleGenerate = async () => {
+        if (!location || isLoading) return
+        onPreviewRoute?.(null)
         await generate(prompt, { area: selectedArea, userLocation })
     }
 
@@ -106,7 +108,11 @@ export default function RouteGenerator({ selectedArea, userLocation, onPreviewRo
                         placeholder={placeholder}
                         className="flex-1 h-11 px-4 rounded-2xl bg-secondary/60 border border-border/50 focus-ring text-sm font-medium"
                         disabled={isLoading}
-                        onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+                        onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return
+                            if (!prompt.trim() || isLoading || !location) return
+                            handleGenerate()
+                        }}
                     />
                     <button
                         onClick={handleGenerate}
