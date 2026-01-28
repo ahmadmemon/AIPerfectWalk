@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GoogleMap, Marker, DirectionsRenderer, OverlayView } from '@react-google-maps/api'
+import { GoogleMap, Marker, DirectionsRenderer, OverlayView, Polyline } from '@react-google-maps/api'
 import { useTheme } from '../context/ThemeContext'
 import { getStopColor, createPoint, getWaypoints } from '../utils/routeHelpers'
 import { ExternalLink, Flag, MapPin, Navigation, Plus, Trash2, Star } from 'lucide-react'
@@ -28,6 +28,7 @@ const mapContainerStyle = {
 
 export default function Map({
     route,
+    previewRoute,
     editMode,
     onSetStart,
     onSetEnd,
@@ -39,14 +40,19 @@ export default function Map({
     discoverPlaces = [],
     focusPoint,
     onFocusPointConsumed,
+    onPreviewRouteConfirm,
+    onPreviewRouteDismiss,
 }) {
     const { isDark } = useTheme()
     const mapRef = useRef(null)
     const geocoderRef = useRef(null)
     const directionsServiceRef = useRef(null)
+    const previewDirectionsServiceRef = useRef(null)
     const [directions, setDirections] = useState(null)
+    const [previewDirections, setPreviewDirections] = useState(null)
     const [userLocation, setUserLocation] = useState(null)
     const [activeInfo, setActiveInfo] = useState(null)
+    const [previewControlsOpen, setPreviewControlsOpen] = useState(false)
     const prevStopsCountRef = useRef(0)
     const placeDetailsCacheRef = useRef(new Map())
     const [mapCenter, setMapCenter] = useState(() => {
@@ -196,6 +202,40 @@ export default function Map({
         })
     }, [route.startPoint, route.endPoint, route.stops, onUpdateRouteInfo])
 
+    // Calculate and display preview route when provided (does not affect active route state).
+    useEffect(() => {
+        const start = previewRoute?.startPoint
+        const end = previewRoute?.endPoint
+
+        if (!start || !end || typeof start.lat !== 'number' || typeof start.lng !== 'number' || typeof end.lat !== 'number' || typeof end.lng !== 'number') {
+            setPreviewDirections(null)
+            setPreviewControlsOpen(false)
+            return
+        }
+
+        if (!previewDirectionsServiceRef.current) {
+            previewDirectionsServiceRef.current = new google.maps.DirectionsService()
+        }
+
+        const request = {
+            origin: { lat: start.lat, lng: start.lng },
+            destination: { lat: end.lat, lng: end.lng },
+            waypoints: getWaypoints(previewRoute?.stops || []),
+            optimizeWaypoints: false,
+            travelMode: google.maps.TravelMode.WALKING,
+        }
+
+        previewDirectionsServiceRef.current.route(request, (result, status) => {
+            if (status === 'OK') {
+                setPreviewDirections(result)
+                setPreviewControlsOpen(false)
+            } else {
+                setPreviewDirections(null)
+            }
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [previewRoute?.startPoint?.lat, previewRoute?.startPoint?.lng, previewRoute?.endPoint?.lat, previewRoute?.endPoint?.lng, previewRoute?.stops])
+
     // Initialize geocoder
     useEffect(() => {
         if (!geocoderRef.current) {
@@ -319,6 +359,56 @@ export default function Map({
 
     return (
         <div className="relative w-full h-full">
+            {previewRoute && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+                    <div className="pointer-events-auto rounded-2xl bg-background/90 backdrop-blur-xl border border-border/50 shadow-lg px-3 py-2 flex items-center gap-2">
+                        <div className="text-xs font-semibold text-foreground">
+                            Route preview
+                        </div>
+                        <div className="text-[11px] text-muted-foreground hidden sm:block">
+                            Click the dashed line to review
+                        </div>
+                        <button
+                            onClick={() => setPreviewControlsOpen(true)}
+                            className="ml-1 h-8 px-3 rounded-full bg-secondary/60 hover:bg-secondary border border-border/50 text-xs font-semibold transition-colors focus-ring"
+                        >
+                            Review
+                        </button>
+                        <button
+                            onClick={() => {
+                                setPreviewControlsOpen(false)
+                                onPreviewRouteDismiss?.()
+                            }}
+                            className="h-8 px-3 rounded-full bg-secondary/60 hover:bg-secondary border border-border/50 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors focus-ring"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+
+                    {previewControlsOpen && (
+                        <div className="mt-2 pointer-events-auto rounded-2xl bg-background/90 backdrop-blur-xl border border-border/50 shadow-lg p-3 flex items-center justify-center gap-2">
+                            <button
+                                onClick={() => {
+                                    setPreviewControlsOpen(false)
+                                    onPreviewRouteConfirm?.()
+                                }}
+                                className="h-9 px-4 rounded-full bg-primary text-primary-foreground text-xs font-semibold transition-colors focus-ring"
+                            >
+                                Use this route
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setPreviewControlsOpen(false)
+                                    onPreviewRouteDismiss?.()
+                                }}
+                                className="h-9 px-4 rounded-full bg-secondary/60 hover:bg-secondary border border-border/50 text-xs font-semibold transition-colors focus-ring"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
             <GoogleMap
                 mapContainerStyle={mapContainerStyle}
                 center={mapCenter}
@@ -445,6 +535,32 @@ export default function Map({
                                 strokeWeight: 5,
                                 strokeOpacity: 0.9,
                             },
+                        }}
+                    />
+                )}
+
+                {/* Preview Route (dashed) */}
+                {previewDirections?.routes?.[0]?.overview_path && (
+                    <Polyline
+                        path={previewDirections.routes[0].overview_path}
+                        onClick={() => setPreviewControlsOpen(true)}
+                        options={{
+                            strokeOpacity: 0,
+                            strokeWeight: 5,
+                            clickable: true,
+                            zIndex: 1,
+                            icons: [
+                                {
+                                    icon: {
+                                        path: 'M 0,-1 0,1',
+                                        strokeOpacity: 0.9,
+                                        strokeColor: isDark ? '#93C5FD' : '#2563EB',
+                                        scale: 4,
+                                    },
+                                    offset: '0',
+                                    repeat: '14px',
+                                },
+                            ],
                         }}
                     />
                 )}
